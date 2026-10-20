@@ -10,14 +10,12 @@ Options: --out course.zip  --brand "#e4002b"  --provider claude|gemini|openroute
 """
 import argparse
 import json
-import os
 import sys
 import tempfile
 from pathlib import Path
 
-from .ai_redesign import PROVIDERS, ai_course, detect_provider, heuristic_course
-from .extract import as_prompt_text, extract
-from .package import build_package
+from .ai_redesign import PROVIDERS
+from .pipeline import build_package, design_course, extract, screen_summary
 from .schema import validate
 
 
@@ -48,16 +46,10 @@ def main(argv=None):
         course = json.loads(Path(a.course_json).read_text(encoding="utf-8"))
         warnings = validate(course)
         print(f"    using reviewed course JSON: {a.course_json}")
-    elif a.no_ai or not (a.provider or detect_provider()):
-        if not a.no_ai:
-            print("    No LLM API key set (e.g. GEMINI_API_KEY) - falling back to basic (non-AI) conversion")
-        course, warnings = heuristic_course(deck)
     else:
-        provider = a.provider or detect_provider()
-        model = a.model or PROVIDERS[provider][2]
-        print(f"    asking {provider} ({model}) to redesign the deck ...")
-        course, warnings = ai_course(as_prompt_text(deck), model=model, extra_instructions=a.instructions, provider=provider)
-        print(f"    AI produced {len(course['screens'])} screens")
+        course, warnings, how = design_course(deck, use_ai=not a.no_ai, provider=a.provider, model=a.model,
+                                              instructions=a.instructions, log=lambda m: print("    " + m))
+        print(f"    {how} produced {len(course['screens'])} screens")
     for w in warnings:
         print("    warning:", w)
 
@@ -70,9 +62,7 @@ def main(argv=None):
 
     print("3/3 Packaging SCORM 1.2 ...")
     build_package(course, out, media_dir=media, brand=a.brand, keep_dir=a.preview_dir)
-    kinds = {}
-    for s in course["screens"]:
-        kinds[s["type"]] = kinds.get(s["type"], 0) + 1
+    kinds = screen_summary(course)
     print(f"    {out}  ({out.stat().st_size // 1024} KB) - screens: " + ", ".join(f"{v} {k}" for k, v in kinds.items()))
     return 0
 

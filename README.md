@@ -17,7 +17,35 @@ PPTX ──► 1. extract ──► 2. AI redesign (LLM) ──► course.json �
                                └── human review/edit ┘
 ```
 
-## Quick start (Windows)
+## Web app
+
+Upload a deck in the browser, watch it convert, click through the finished course, and download the SCORM zip.
+No command line needed for the people using it.
+
+![The ppt2scorm web app showing a converted course in the preview frame](docs/web-app.png)
+
+Run it on your own computer:
+
+```bash
+pip install -r requirements.txt
+set GEMINI_API_KEY=your-key-here        # optional: Mac/Linux use export. Users can also paste their own key.
+uvicorn web.app:app --port 8000
+```
+
+Then open http://localhost:8000. To host it for others, use the included `Dockerfile` on any host that runs
+Docker containers, and set the key as a secret environment variable on that host.
+
+| Setting (environment variable) | Default | Purpose |
+|---|---|---|
+| `GEMINI_API_KEY` (or another provider's key) | none | Shared key so visitors can try AI mode without their own key |
+| `PPT2SCORM_DAILY_LIMIT` | `10` | AI conversions per visitor per day on the shared key |
+| `PPT2SCORM_MAX_MB` | `50` | Largest upload allowed |
+| `PPT2SCORM_JOB_TTL_MIN` | `120` | Minutes before uploaded decks and generated files are deleted |
+| `PPT2SCORM_WORKERS` | `2` | Conversions that can run at the same time |
+
+Keys pasted by visitors are used for that one conversion and are never stored or logged.
+
+## Quick start (command line, Windows)
 
 1. Install Python 3.10 or newer from python.org and tick **Add Python to PATH**.
 2. Get a free Gemini API key at [aistudio.google.com](https://aistudio.google.com).
@@ -82,12 +110,15 @@ python -m ppt2scorm.cli my_deck.pptx --preview-dir preview
 | Path | What it does |
 |---|---|
 | `ppt2scorm/extract.py` | Reads titles, bullets, tables, images and **speaker notes** from the .pptx (python-pptx). Optional slide-to-PNG rendering via LibreOffice. |
-| `ppt2scorm/ai_redesign.py` | The instructional-design prompt sent to Claude, JSON validation with automatic repair retries, and the no-AI fallback. |
+| `ppt2scorm/ai_redesign.py` | The instructional-design prompt sent to the LLM, provider settings, JSON validation with automatic repair retries, and the no-AI fallback. |
 | `ppt2scorm/schema.py` | The course JSON contract: `intro`, `content`, `flipcards`, `reveal`, `match`, `scenario`, `summary`, `mcq`. |
+| `ppt2scorm/pipeline.py` | The shared conversion steps used by both the command line and the web app. |
+| `web/app.py` | FastAPI web app: upload, background conversion with progress, preview, downloads, limits and cleanup. |
+| `web/static/index.html` | The web app's single page. |
 | `ppt2scorm/package.py` | Copies the player, embeds the course, writes `imsmanifest.xml` (SCORM 1.2 with mastery score), and zips it. |
 | `player/` | One reusable HTML/CSS/JS player, with no external dependencies, mobile-friendly and keyboard accessible. |
 | `player/scorm.js` | SCORM 1.2 runtime: finds the LMS API, sets status and score, and handles bookmarking and session time. Runs in preview mode outside an LMS. |
-| `tests/` | Mock LMS plus a Playwright playthrough that checks every SCORM call. |
+| `tests/` | Mock LMS and Playwright playthrough that checks every SCORM call, plus an end-to-end web app test with a mock AI provider. |
 
 ## What gets reported to the LMS
 
@@ -102,7 +133,7 @@ Learners must complete each interaction before **Next** unlocks. If they fail th
 
 ## Testing before you roll out
 
-1. Build the sample with `python -m ppt2scorm.cli samples/data_privacy_essentials.pptx --course-json samples/data_privacy_essentials.course.json --preview-dir out/preview --out out/sample.zip`, then run `python tests/test_playthrough.py` (requires `pip install playwright && playwright install chromium`).
+1. Build the sample with `python -m ppt2scorm.cli samples/data_privacy_essentials.pptx --course-json samples/data_privacy_essentials.course.json --preview-dir out/preview --out out/sample.zip`, then run `python tests/test_playthrough.py` and `python tests/test_web.py` (requires `pip install -r requirements-dev.txt && playwright install chromium`).
 2. Upload the zip to **SCORM Cloud** (Rustici's free account). It is the standard compatibility check.
 3. Upload to your own LMS's test instance and do one full pass and one deliberate fail.
 
@@ -110,7 +141,7 @@ Learners must complete each interaction before **Next** unlocks. If they fail th
 
 - Narration: generate audio from the narration script with a TTS API and add an audio element to each screen.
 - Show the slide images in `media/` on content screens when a slide is mostly a diagram.
-- A web UI with upload, a screen-by-screen editor and download (FastAPI plus the same player as the live preview).
+- A screen-by-screen visual editor in the web app, so reviewers can fix questions without touching JSON.
 - SCORM 2004 and xAPI/cmi5 output, and `cmi.interactions` for per-question LMS reports.
 - Include the SCORM 1.2 XSD files in the zip for the strictest LMS validators.
 

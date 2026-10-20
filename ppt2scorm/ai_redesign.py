@@ -12,13 +12,12 @@ from .schema import SCREEN_FIELDS, CourseError, validate
 
 # name: (API key env var, base_url for OpenAI-compatible APIs or None for Anthropic, default model)
 PROVIDERS = {
-    "claude": ("ANTHROPIC_API_KEY", None, "claude-sonnet-5-5"),
     "gemini": ("GEMINI_API_KEY", "https://generativelanguage.googleapis.com/v1beta/openai/", "gemini-3.8-flash"),
+    "claude": ("ANTHROPIC_API_KEY", None, "claude-sonnet-5-5"),
     "openrouter": ("OPENROUTER_API_KEY", "https://openrouter.ai/api/v1", None),  # pass --model, e.g. a ':free' model ID
     "glm": ("ZAI_API_KEY", "https://api.z.ai/api/paas/v4/", "glm-4.7-flash"),
     "qwen": ("DASHSCOPE_API_KEY", "https://dashscope-intl.aliyuncs.com/compatible-mode/v1", "qwen-plus"),
 }
-DEFAULT_MODEL = os.environ.get("PPT2SCORM_MODEL", PROVIDERS["claude"][2])
 
 
 def detect_provider():
@@ -29,9 +28,12 @@ def detect_provider():
     return None
 
 
-def _make_caller(provider, model):
+def _make_caller(provider, model, api_key=None):
     env, base_url, default_model = PROVIDERS[provider]
-    key = os.environ.get(env)
+    # Optional override, e.g. PPT2SCORM_GEMINI_BASE_URL, for proxies or tests
+    if base_url is not None:
+        base_url = os.environ.get(f"PPT2SCORM_{provider.upper()}_BASE_URL", base_url)
+    key = api_key or os.environ.get(env)
     if not key:
         raise CourseError(f"{env} is not set (needed for provider '{provider}')")
     model = model or default_model
@@ -94,9 +96,10 @@ def _parse_json(text):
     return json.loads(text[start:end + 1])
 
 
-def ai_course(deck_text, model=None, extra_instructions="", max_retries=2, provider="claude"):
-    """Calls the LLM, validates the JSON, and asks the model to fix it if validation fails."""
-    call, model = _make_caller(provider, model)
+def ai_course(deck_text, model=None, extra_instructions="", max_retries=2, provider="claude", api_key=None):
+    """Calls the LLM, validates the JSON, and asks the model to fix it if validation fails.
+    api_key overrides the provider's environment variable (used by the web app's bring-your-own-key)."""
+    call, model = _make_caller(provider, model, api_key)
     user = f"Convert this deck into a course.\n{extra_instructions}\n\n<deck>\n{deck_text}\n</deck>"
     messages = [{"role": "user", "content": user}]
     last_err = None

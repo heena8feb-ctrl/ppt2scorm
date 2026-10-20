@@ -1,0 +1,10 @@
+.git
+out
+preview
+__pycache__
+*.pyc
+*_scorm.zip
+tests
+samples
+docs
+.env

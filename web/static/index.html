@@ -1,0 +1,418 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>ppt2scorm: turn slide decks into SCORM courses</title>
+<meta name="description" content="Upload a PowerPoint deck and get an interactive SCORM 1.2 course with flip cards, scenarios and a scored quiz.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Atkinson+Hyperlegible:wght@400;700&family=Bricolage+Grotesque:opsz,wght@12..96,500;12..96,700&display=swap" rel="stylesheet">
+<style>
+:root {
+  --paper: #f3f5f4;
+  --surface: #ffffff;
+  --ink: #123532;
+  --muted: #5d6f6b;
+  --line: #d6dedb;
+  --action: #0e6b62;
+  --action-ink: #ffffff;
+  --mark: #f4d34a;
+  --error: #b3261e;
+  --error-bg: #fbeceb;
+  --display: "Bricolage Grotesque", "Segoe UI", system-ui, sans-serif;
+  --body: "Atkinson Hyperlegible", "Segoe UI", system-ui, sans-serif;
+}
+* { box-sizing: border-box; }
+html { -webkit-text-size-adjust: 100%; }
+body { margin: 0; background: var(--paper); color: var(--ink); font: 17px/1.6 var(--body); }
+a { color: var(--action); }
+.wrap { max-width: 920px; margin: 0 auto; padding: 28px 24px 64px; }
+
+.top { display: flex; justify-content: space-between; align-items: center; margin-bottom: 48px; font-size: 15px; }
+.logo { font-family: var(--display); font-weight: 700; font-size: 20px; letter-spacing: -.01em; display: flex; align-items: center; gap: 10px; }
+.logo svg { flex: none; }
+.top a { color: var(--muted); text-decoration: none; }
+.top a:hover { color: var(--ink); text-decoration: underline; }
+
+h1 { font-family: var(--display); font-weight: 700; font-size: clamp(34px, 5.2vw, 54px); line-height: 1.05;
+  letter-spacing: -.025em; margin: 0 0 16px; max-width: 16ch; }
+.lede { font-size: 19px; color: var(--muted); max-width: 58ch; margin: 0 0 36px; }
+
+/* the slide frame: dropzone -> progress -> live course */
+.frame { position: relative; aspect-ratio: 16 / 9; background: var(--surface); border: 2px dashed var(--line);
+  border-radius: 6px; overflow: hidden; transition: border-color .15s, background .15s; }
+.frame.is-file, .frame.is-busy, .frame.is-done { border-style: solid; border-color: var(--ink); }
+.frame.is-over { border-color: var(--action); background: #eef6f4; }
+.frame > .state { position: absolute; inset: 0; display: none; }
+.frame[data-state="empty"] .s-empty, .frame[data-state="file"] .s-file, .frame[data-state="busy"] .s-busy,
+.frame[data-state="done"] .s-done, .frame[data-state="error"] .s-error { display: flex; }
+
+.s-empty, .s-file, .s-error { flex-direction: column; justify-content: center; padding: 6% 8%; }
+.slide-title { font-family: var(--display); font-weight: 700; font-size: clamp(22px, 3.4vw, 34px); line-height: 1.15; margin: 0 0 14px; letter-spacing: -.015em; }
+.slide-bullets { margin: 0; padding-left: 1.1em; color: var(--muted); font-size: clamp(15px, 1.9vw, 18px); }
+.slide-bullets li { margin: 4px 0; }
+.pick { margin-top: 22px; }
+.slide-num { position: absolute; right: 18px; bottom: 12px; font-size: 13px; color: var(--muted); }
+#file { position: absolute; width: 1px; height: 1px; opacity: 0; }
+.s-empty { cursor: pointer; }
+
+.s-busy { flex-direction: column; justify-content: center; padding: 6% 8%; }
+.steps { list-style: none; margin: 0; padding: 0; display: grid; gap: 14px; counter-reset: step; }
+.steps li { display: grid; grid-template-columns: 34px 1fr; align-items: baseline; gap: 12px; color: var(--muted);
+  font-size: clamp(16px, 2vw, 20px); counter-increment: step; }
+.steps li::before { content: counter(step); font-family: var(--display); font-weight: 700; width: 30px; height: 30px; border-radius: 50%;
+  border: 2px solid var(--line); display: grid; place-items: center; font-size: 14px; color: var(--muted); align-self: center; }
+.steps li.now { color: var(--ink); font-weight: 700; }
+.steps li.now::before { border-color: var(--ink); background: var(--mark); color: var(--ink); animation: pulse 1.4s ease-in-out infinite; }
+.steps li.ok { color: var(--ink); }
+.steps li.ok::before { content: "\2713"; background: var(--ink); border-color: var(--ink); color: #fff; }
+.steps .sub { grid-column: 2; display: block; font-weight: 400; font-size: 14px; color: var(--muted); margin-top: -8px; }
+@keyframes pulse { 50% { box-shadow: 0 0 0 6px rgba(244, 211, 74, .35); } }
+
+.frame.is-done { aspect-ratio: auto; height: min(80vh, 700px); }
+.s-done iframe { width: 100%; height: 100%; border: 0; display: block; }
+.s-error { background: var(--error-bg); }
+.s-error .slide-title { color: var(--error); }
+.s-error p { margin: 0; max-width: 60ch; }
+
+.frame-note { font-size: 14px; color: var(--muted); margin: 10px 0 0; min-height: 1.6em; }
+
+/* settings */
+.panel { margin-top: 28px; display: grid; grid-template-columns: 1fr 1fr; gap: 22px 28px; }
+.field { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
+.field.full { grid-column: 1 / -1; }
+label, .legend { font-weight: 700; font-size: 15px; }
+.help { font-size: 14px; color: var(--muted); margin: 0; }
+input[type=text], input[type=password], select, textarea {
+  font: inherit; font-size: 16px; color: var(--ink); background: var(--surface); border: 1.5px solid var(--line);
+  border-radius: 6px; padding: 10px 12px; width: 100%; }
+textarea { resize: vertical; min-height: 76px; }
+input:focus-visible, select:focus-visible, textarea:focus-visible, button:focus-visible, .s-empty:focus-visible, summary:focus-visible, .seg label:focus-within {
+  outline: 3px solid var(--mark); outline-offset: 2px; border-color: var(--ink); }
+.seg { display: inline-flex; border: 1.5px solid var(--ink); border-radius: 6px; overflow: hidden; width: fit-content; }
+.seg label { position: relative; padding: 9px 16px; cursor: pointer; font-weight: 700; font-size: 15px; }
+.seg label + label { border-left: 1.5px solid var(--ink); }
+.seg input { position: absolute; opacity: 0; inset: 0; cursor: pointer; }
+.seg label:has(input:checked) { background: var(--ink); color: #fff; }
+.colour { display: flex; gap: 10px; align-items: center; }
+.colour input[type=color] { width: 46px; height: 44px; border: 1.5px solid var(--line); border-radius: 6px; padding: 3px; background: var(--surface); cursor: pointer; }
+details.adv { grid-column: 1 / -1; border-top: 1.5px solid var(--line); padding-top: 14px; }
+details.adv summary { cursor: pointer; font-weight: 700; font-size: 15px; width: fit-content; }
+details.adv .panel { margin-top: 18px; }
+.is-hidden { display: none !important; }
+
+/* actions */
+.actions { margin-top: 30px; display: flex; flex-wrap: wrap; gap: 12px; align-items: center; }
+.btn { font: inherit; font-weight: 700; font-size: 16px; border-radius: 6px; padding: 13px 22px; cursor: pointer;
+  border: 2px solid var(--ink); background: transparent; color: var(--ink); text-decoration: none; display: inline-block; }
+.btn.primary { background: var(--action); border-color: var(--action); color: var(--action-ink); }
+.btn.primary:hover { background: #0a564f; border-color: #0a564f; }
+.btn:hover { background: #e7edeb; }
+.btn:disabled { opacity: .45; cursor: not-allowed; }
+.summary { margin: 26px 0 0; font-size: 17px; }
+.summary strong { font-family: var(--display); }
+.warn { margin: 8px 0 0; font-size: 14px; color: var(--muted); }
+
+.notes { margin-top: 64px; padding-top: 22px; border-top: 1.5px solid var(--line); display: grid; grid-template-columns: repeat(3, 1fr);
+  gap: 24px; font-size: 15px; color: var(--muted); }
+.notes h2 { font-family: var(--display); font-size: 17px; font-weight: 700; color: var(--ink); margin: 0 0 6px; }
+.notes p { margin: 0; }
+
+@media (max-width: 720px) {
+  .wrap { padding: 20px 16px 48px; }
+  .top { margin-bottom: 32px; }
+  .panel, .notes { grid-template-columns: 1fr; }
+  .frame { aspect-ratio: auto; min-height: 340px; }
+  .slide-num { display: none; }
+}
+@media (prefers-reduced-motion: reduce) { * { animation: none !important; transition: none !important; } }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header class="top">
+    <div class="logo">
+      <svg width="28" height="20" viewBox="0 0 28 20" aria-hidden="true"><rect x="1" y="1" width="26" height="18" rx="2" fill="none" stroke="#123532" stroke-width="2"/><rect x="5" y="5" width="10" height="3" fill="#123532"/><rect x="5" y="11" width="18" height="4" fill="#f4d34a"/></svg>
+      ppt2scorm
+    </div>
+    <a href="https://github.com/heena8feb-ctrl/ppt2scorm">Source on GitHub</a>
+  </header>
+
+  <main>
+    <h1>Turn a slide deck into a course people click through</h1>
+    <p class="lede">Upload a PowerPoint. AI rebuilds it into short screens with flip cards, scenarios and a scored quiz, then packages it as SCORM 1.2 for any LMS.</p>
+
+    <form id="form" novalidate>
+      <div class="frame" id="frame" data-state="empty">
+        <div class="state s-empty" id="drop" tabindex="0" role="button" aria-describedby="drop-help">
+          <p class="slide-title">Drop your .pptx here</p>
+          <ul class="slide-bullets" id="drop-help">
+            <li>Or press here to choose a file</li>
+            <li>Speaker notes help: the AI uses them to write scenarios and answers</li>
+            <li id="max-note">Up to 50 MB</li>
+          </ul>
+          <span class="slide-num">1</span>
+          <input type="file" id="file" name="file" accept=".pptx,application/vnd.openxmlformats-officedocument.presentationml.presentation" tabindex="-1">
+        </div>
+
+        <div class="state s-file">
+          <p class="slide-title" id="file-name">deck.pptx</p>
+          <ul class="slide-bullets"><li id="file-size"></li><li>Check the settings below, then convert</li></ul>
+          <div class="pick"><button type="button" class="btn" id="change-file">Choose a different file</button></div>
+          <span class="slide-num">1</span>
+        </div>
+
+        <div class="state s-busy" aria-live="polite">
+          <ol class="steps" id="steps">
+            <li data-step="extract">Reading slides and speaker notes<span class="sub" id="sub-extract"></span></li>
+            <li data-step="design">Designing the course<span class="sub" id="sub-design"></span></li>
+            <li data-step="package">Packaging for your LMS<span class="sub">SCORM 1.2 with score, pass mark and resume</span></li>
+          </ol>
+        </div>
+
+        <div class="state s-done"><iframe id="preview" title="Course preview"></iframe></div>
+
+        <div class="state s-error" role="alert">
+          <p class="slide-title">That didn't work</p>
+          <p id="error-text"></p>
+          <div class="pick"><button type="button" class="btn" id="error-back">Back to settings</button></div>
+        </div>
+      </div>
+      <p class="frame-note" id="frame-note"></p>
+
+      <div id="settings">
+        <div class="panel">
+          <div class="field">
+            <span class="legend" id="mode-label">How to build it</span>
+            <div class="seg" role="radiogroup" aria-labelledby="mode-label">
+              <label><input type="radio" name="mode" value="ai" checked>With AI</label>
+              <label><input type="radio" name="mode" value="basic">Basic</label>
+            </div>
+            <p class="help" id="mode-help">Redesigns the content into interactions and writes the quiz.</p>
+          </div>
+          <div class="field">
+            <label for="brand-text">Brand colour</label>
+            <div class="colour">
+              <input type="color" id="brand-pick" value="#1f5eff" aria-label="Pick brand colour">
+              <input type="text" id="brand-text" name="brand" value="#1f5eff" maxlength="7" spellcheck="false">
+            </div>
+          </div>
+          <div class="field full ai-only">
+            <label for="instructions">Notes for the AI <span class="help">(optional)</span></label>
+            <textarea id="instructions" name="instructions" maxlength="600" placeholder="Who is this for and what should they be able to do? For example: new service technicians, keep it practical, use simple English."></textarea>
+          </div>
+          <details class="adv ai-only">
+            <summary>AI provider and API key</summary>
+            <div class="panel">
+              <div class="field">
+                <label for="provider">Provider</label>
+                <select id="provider" name="provider"></select>
+                <p class="help" id="provider-help"></p>
+              </div>
+              <div class="field">
+                <label for="api_key">Your API key <span class="help">(optional)</span></label>
+                <input type="password" id="api_key" name="api_key" autocomplete="off" spellcheck="false">
+                <p class="help">Used for this conversion only and never stored.</p>
+              </div>
+            </div>
+          </details>
+        </div>
+      </div>
+
+      <div class="actions" id="actions-start">
+        <button type="submit" class="btn primary" id="convert" disabled>Convert to course</button>
+      </div>
+      <div class="actions is-hidden" id="actions-done">
+        <a class="btn primary" id="dl-zip" href="#" download>Download SCORM package</a>
+        <a class="btn" id="dl-json" href="#" download>Download course JSON</a>
+        <button type="button" class="btn" id="again">Convert another deck</button>
+      </div>
+      <p class="summary is-hidden" id="summary"></p>
+      <p class="warn is-hidden" id="warn"></p>
+    </form>
+
+    <section class="notes" aria-label="About this tool">
+      <div><h2>Works in any LMS</h2><p>SCORM 1.2 is supported by SuccessFactors, Cornerstone, Moodle, Docebo and most others. Test first in SCORM Cloud.</p></div>
+      <div><h2>Review before you publish</h2><p>AI can get things wrong. Click through the preview and check every quiz answer. Download the course JSON to edit it.</p></div>
+      <div><h2>Keep confidential decks off free AI</h2><p>Free AI tiers may use what you send to improve their models. Use Basic mode, your company's approved key, or run the tool locally.</p></div>
+    </section>
+  </main>
+</div>
+
+<script>
+(function () {
+  "use strict";
+  var $ = function (id) { return document.getElementById(id); };
+  var frame = $("frame"), fileInput = $("file"), form = $("form");
+  var cfg = { providers: [], max_mb: 50, daily_limit: 10 };
+  var file = null, poll = null;
+
+  function setState(s) {
+    frame.dataset.state = s;
+    frame.className = "frame" + ({ file: " is-file", busy: " is-busy", done: " is-done" }[s] || "");
+    $("settings").classList.toggle("is-hidden", s === "busy" || s === "done");
+    $("actions-start").classList.toggle("is-hidden", s === "busy" || s === "done");
+    $("actions-done").classList.toggle("is-hidden", s !== "done");
+    $("summary").classList.toggle("is-hidden", s !== "done");
+    $("warn").classList.toggle("is-hidden", s !== "done" || !$("warn").textContent);
+    $("convert").disabled = !file;
+  }
+
+  function fmtSize(b) { return b > 1048576 ? (b / 1048576).toFixed(1) + " MB" : Math.max(1, Math.round(b / 1024)) + " KB"; }
+
+  function chooseFile(f) {
+    if (!f) return;
+    if (!/\.pptx$/i.test(f.name)) { showError("Please choose a PowerPoint .pptx file. Older .ppt files must be saved as .pptx first."); return; }
+    if (f.size > cfg.max_mb * 1048576) { showError("That file is " + fmtSize(f.size) + ". The limit is " + cfg.max_mb + " MB."); return; }
+    file = f;
+    $("file-name").textContent = f.name;
+    $("file-size").textContent = fmtSize(f.size);
+    setState("file");
+    $("frame-note").textContent = "";
+  }
+
+  function showError(msg) {
+    clearInterval(poll);
+    $("error-text").textContent = msg;
+    setState("error");
+  }
+
+  // file picking: click, keyboard, drag and drop
+  $("drop").addEventListener("click", function () { fileInput.click(); });
+  $("drop").addEventListener("keydown", function (e) { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); fileInput.click(); } });
+  $("change-file").addEventListener("click", function () { fileInput.click(); });
+  fileInput.addEventListener("change", function () { chooseFile(fileInput.files[0]); fileInput.value = ""; });
+  ["dragenter", "dragover"].forEach(function (ev) {
+    frame.addEventListener(ev, function (e) {
+      if (frame.dataset.state === "busy" || frame.dataset.state === "done") return;
+      e.preventDefault(); frame.classList.add("is-over");
+    });
+  });
+  ["dragleave", "drop"].forEach(function (ev) { frame.addEventListener(ev, function () { frame.classList.remove("is-over"); }); });
+  frame.addEventListener("drop", function (e) {
+    if (frame.dataset.state === "busy" || frame.dataset.state === "done") return;
+    e.preventDefault(); chooseFile(e.dataTransfer.files[0]);
+  });
+  $("error-back").addEventListener("click", function () { setState(file ? "file" : "empty"); });
+
+  // settings
+  function mode() { return form.querySelector("input[name=mode]:checked").value; }
+  function providerInfo() { return cfg.providers.filter(function (p) { return p.id === $("provider").value; })[0]; }
+  function refreshSettings() {
+    var ai = mode() === "ai";
+    document.querySelectorAll(".ai-only").forEach(function (el) { el.classList.toggle("is-hidden", !ai); });
+    $("mode-help").textContent = ai ? "Redesigns the content into interactions and writes the quiz."
+      : "No AI: one screen per slide and a simple recall quiz. Nothing leaves this server.";
+    var p = providerInfo();
+    if (p) {
+      $("provider-help").textContent = p.server_key
+        ? "Free to try here, up to " + cfg.daily_limit + " AI conversions a day. Add your own key for more."
+        : "No shared key for this provider. Paste your own API key.";
+      if (ai && !p.server_key && !$("api_key").value.trim()) $("frame-note").textContent = "";
+    }
+  }
+  form.addEventListener("change", refreshSettings);
+  $("brand-pick").addEventListener("input", function () { $("brand-text").value = this.value; });
+  $("brand-text").addEventListener("input", function () { if (/^#[0-9a-f]{6}$/i.test(this.value)) $("brand-pick").value = this.value; });
+
+  fetch("/api/config").then(function (r) { return r.json(); }).then(function (c) {
+    cfg = c;
+    $("max-note").textContent = "Up to " + c.max_mb + " MB";
+    c.providers.forEach(function (p) {
+      var o = document.createElement("option"); o.value = p.id;
+      o.textContent = p.label + (p.server_key ? "" : " (needs your key)");
+      $("provider").appendChild(o);
+    });
+    $("provider").value = c.default_provider;
+    var p = providerInfo();
+    if (p && !p.server_key) document.querySelector("details.adv").open = true;
+    refreshSettings();
+  });
+
+  // convert
+  form.addEventListener("submit", function (e) {
+    e.preventDefault();
+    if (!file) return;
+    var brand = $("brand-text").value.trim();
+    if (brand && !/^#[0-9a-f]{6}$/i.test(brand)) { $("frame-note").textContent = "Brand colour must look like #1f5eff."; $("brand-text").focus(); return; }
+    var p = providerInfo();
+    if (mode() === "ai" && p && !p.server_key && !$("api_key").value.trim()) {
+      document.querySelector("details.adv").open = true;
+      $("frame-note").textContent = "Paste an API key for " + p.label + ", or choose Basic.";
+      $("api_key").focus(); return;
+    }
+    var fd = new FormData();
+    fd.append("file", file);
+    fd.append("mode", mode());
+    fd.append("provider", $("provider").value || "gemini");
+    fd.append("api_key", $("api_key").value.trim());
+    fd.append("brand", brand);
+    fd.append("instructions", $("instructions").value);
+    markSteps("extract", {});
+    $("sub-extract").textContent = ""; $("sub-design").textContent = "";
+    $("frame-note").textContent = "Uploading " + file.name + "…";
+    setState("busy");
+    fetch("/api/convert", { method: "POST", body: fd })
+      .then(function (r) { return r.json().then(function (j) { if (!r.ok) throw new Error(j.detail || "Upload failed."); return j; }); })
+      .then(function (j) { $("frame-note").textContent = ""; track(j.job_id); })
+      .catch(function (err) { $("frame-note").textContent = ""; showError(err.message || "Upload failed. Check your connection and try again."); });
+  });
+
+  function markSteps(current, j) {
+    var order = ["extract", "design", "package"], idx = order.indexOf(current);
+    if (current === "done") idx = 3;
+    document.querySelectorAll("#steps li").forEach(function (li, i) {
+      li.className = i < idx ? "ok" : i === idx ? "now" : "";
+      if (i === idx) li.setAttribute("aria-current", "step"); else li.removeAttribute("aria-current");
+    });
+    if (j.slides) $("sub-extract").textContent = j.slides + " slides";
+    if (current === "design") {
+      var s = j.design_seconds || 0;
+      $("sub-design").textContent = (j.mode === "ai" ? "Writing interactions and quiz with " + j.provider : "Building screens and quiz") +
+        (s > 4 ? " (" + s + "s)" : "") + (j.mode === "ai" && s > 25 ? ". Large decks can take a minute or two." : "");
+    }
+  }
+
+  function track(id) {
+    var fails = 0;
+    clearInterval(poll);
+    poll = setInterval(function () {
+      fetch("/api/jobs/" + id).then(function (r) { return r.json().then(function (j) { if (!r.ok) throw new Error(j.detail); return j; }); })
+        .then(function (j) {
+          fails = 0;
+          if (j.status === "error") { showError(j.error || "Something went wrong while converting."); return; }
+          markSteps(j.step, j);
+          if (j.status === "done") { clearInterval(poll); finish(id, j); }
+        })
+        .catch(function (err) { if (++fails > 4) showError(err.message || "Lost contact with the server. Try again."); });
+    }, 1200);
+  }
+
+  var LABELS = { intro: ["intro", "intros"], content: ["content screen", "content screens"], flipcards: ["flip-card set", "flip-card sets"],
+    reveal: ["click-to-reveal list", "click-to-reveal lists"], match: ["matching exercise", "matching exercises"],
+    scenario: ["scenario", "scenarios"], summary: ["recap", "recaps"], mcq: ["quiz question", "quiz questions"] };
+
+  function finish(id, j) {
+    $("preview").src = "/preview/" + id + "/index.html";
+    $("dl-zip").href = "/api/jobs/" + id + "/download";
+    $("dl-json").href = "/api/jobs/" + id + "/course.json";
+    var parts = Object.keys(j.summary || {}).filter(function (k) { return k !== "intro" && k !== "summary"; })
+      .map(function (k) { var n = j.summary[k]; return n + " " + (LABELS[k] ? LABELS[k][n === 1 ? 0 : 1] : k); });
+    $("summary").innerHTML = "";
+    var strong = document.createElement("strong"); strong.textContent = j.title;
+    $("summary").appendChild(strong);
+    $("summary").appendChild(document.createTextNode(": " + j.screens + " screens built by " + j.how + ", including " + parts.join(", ") +
+      ". The package is " + j.size_kb + " KB. Click through the preview above, then download it."));
+    $("warn").textContent = (j.warnings || []).length ? "Note: " + j.warnings.join("; ") : "";
+    setState("done");
+  }
+
+  $("again").addEventListener("click", function () {
+    file = null; $("preview").src = "about:blank"; $("warn").textContent = "";
+    setState("empty"); $("drop").focus();
+  });
+})();
+</script>
+</body>
+</html>
