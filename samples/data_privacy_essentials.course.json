@@ -1,0 +1,147 @@
+{
+  "title": "Data Privacy Essentials",
+  "description": "Learn how to recognise, protect and responsibly handle personal data in your everyday work.",
+  "est_minutes": 15,
+  "mastery_score": 80,
+  "screens": [
+    {
+      "type": "intro",
+      "title": "Data Privacy Essentials",
+      "subtitle": "A 15-minute course for every employee",
+      "objectives": [
+        "Identify what counts as personal data, including indirect identifiers",
+        "Apply the 5 golden rules of handling data in daily work",
+        "Recognise the warning signs of a phishing or social engineering attempt",
+        "Know exactly what to do if a data breach happens"
+      ]
+    },
+    {
+      "type": "content",
+      "title": "Why data privacy matters",
+      "body": "Customers trust us with their names, phone numbers, addresses and purchase history. A single breach can bring regulatory penalties under India's DPDP Act 2023 and lose that trust.",
+      "bullets": [
+        "Most breaches start with a human mistake, not a hacker",
+        "Privacy is every employee's job, not just IT's"
+      ],
+      "callout": "You are the first line of defence."
+    },
+    {
+      "type": "flipcards",
+      "title": "Is it personal data?",
+      "instruction": "Think about each item, then flip the card to check.",
+      "cards": [
+        {"front": "A customer's mobile number", "back": "Yes. It directly identifies a person."},
+        {"front": "A device ID or IP address", "back": "Yes. It is an indirect identifier that can be linked back to a person."},
+        {"front": "A service ticket linked to a customer", "back": "Yes. Once it is tied to a customer, it is personal data."},
+        {"front": "Bank details or health information", "back": "Yes, and it is sensitive. It needs extra care."}
+      ]
+    },
+    {
+      "type": "reveal",
+      "title": "The 5 golden rules",
+      "instruction": "Select each rule to see what it means in practice. These cover most everyday situations.",
+      "items": [
+        {"label": "1. Collect only what you need", "detail": "If you don't need a field to do the job, don't ask for it."},
+        {"label": "2. Use it only for its purpose", "detail": "Data collected for a service visit is not for marketing lists."},
+        {"label": "3. Share only with authorised people", "detail": "Use approved tools only, and check the recipient really needs it."},
+        {"label": "4. Store it securely", "detail": "Never keep customer data on personal devices or in personal email."},
+        {"label": "5. Delete it when done", "detail": "Data you no longer need is a risk with no benefit."}
+      ]
+    },
+    {
+      "type": "match",
+      "title": "Rule in action",
+      "instruction": "Match each situation to the golden rule it follows.",
+      "pairs": [
+        {"left": "Removing an unused 'date of birth' field from a form", "right": "Collect only what you need"},
+        {"left": "Not forwarding a customer file to your Gmail to work from home", "right": "Store it securely"},
+        {"left": "Clearing an old export of call logs after the project ends", "right": "Delete it when done"},
+        {"left": "Checking the recipient is on the approved vendor list", "right": "Share only with authorised people"}
+      ]
+    },
+    {
+      "type": "reveal",
+      "title": "Spotting a phishing attempt",
+      "instruction": "Phishing is the number one way attackers get in. Select each warning sign.",
+      "items": [
+        {"label": "Urgent tone", "detail": "Messages like 'Your account will be blocked in 1 hour' are designed to rush you."},
+        {"label": "Look-alike sender", "detail": "The address looks almost right, but a letter or domain is slightly off."},
+        {"label": "Asks for secrets", "detail": "Requests for passwords, OTPs or customer lists are red flags."},
+        {"label": "Unexpected attachments or links", "detail": "Don't open what you weren't expecting."},
+        {"label": "The right move", "detail": "When in doubt, don't click. Report it to the IT security mailbox."}
+      ]
+    },
+    {
+      "type": "scenario",
+      "title": "Scenario: the urgent vendor request",
+      "situation": "A 'vendor' emails asking for last month's customer service call list. The email says the CEO approved it and it's needed in 30 minutes. You notice the sender's domain is slightly different from the real vendor's. What do you do?",
+      "choices": [
+        {"text": "Send it quickly. The CEO approved it and the deadline is tight.", "correct": false, "feedback": "Urgency plus authority is a classic social engineering pattern. Never let pressure skip verification."},
+        {"text": "Reply to the email and ask them to confirm they are the real vendor.", "correct": false, "feedback": "Replying goes straight back to the attacker, who will happily 'confirm'. Verify through a contact you already know."},
+        {"text": "Don't send anything, verify through a known contact, and report the email to IT security.", "correct": true, "feedback": "Exactly right. Verify through a trusted channel and report. You may protect colleagues who got the same email."},
+        {"text": "Send only part of the list to be safe.", "correct": false, "feedback": "Any customer data sent to an unverified party is a breach, however small."}
+      ]
+    },
+    {
+      "type": "content",
+      "title": "If a breach happens",
+      "body": "Speed matters. The law requires timely notification, and fast reporting limits the damage. Nobody gets in trouble for reporting in good faith.",
+      "bullets": [
+        "Report immediately to your manager and IT security",
+        "Don't investigate or fix it yourself",
+        "Don't delete any evidence"
+      ],
+      "callout": "When in doubt, report it."
+    },
+    {
+      "type": "summary",
+      "title": "Key takeaways",
+      "points": [
+        "Personal data is anything that identifies a person, directly or indirectly",
+        "Follow the 5 golden rules every day",
+        "Pause and verify before sharing any data",
+        "Report suspicious emails and incidents immediately"
+      ]
+    },
+    {
+      "type": "mcq",
+      "question": "Which of these is personal data?",
+      "options": ["The company's annual revenue figure", "A device ID linked to a customer's account", "A product's model number", "The address of a public showroom"],
+      "correct": 1,
+      "explanation": "A device ID linked to a customer is an indirect identifier, so it counts as personal data.",
+      "scored": true
+    },
+    {
+      "type": "mcq",
+      "question": "You want to finish a report at home. What should you do with the customer data file?",
+      "options": ["Email it to your personal address", "Copy it to a USB stick", "Work on it only through approved company tools and devices", "Print it and take it home"],
+      "correct": 2,
+      "explanation": "Golden rule 4: store data securely and never on personal devices or personal email.",
+      "scored": true
+    },
+    {
+      "type": "mcq",
+      "question": "Which is the strongest sign that an email may be phishing?",
+      "options": ["It comes from your manager's usual address", "It urgently asks for an OTP and the sender's domain is slightly off", "It includes the company logo", "It was sent on a Monday"],
+      "correct": 1,
+      "explanation": "Urgency, requests for secrets and look-alike senders are classic phishing signs.",
+      "scored": true
+    },
+    {
+      "type": "mcq",
+      "question": "You realise you sent a customer list to the wrong external address. What is the first thing to do?",
+      "options": ["Report it immediately to your manager and IT security", "Try to recall the email and say nothing if it works", "Delete the sent email so there is no trace", "Wait to see if anyone complains"],
+      "correct": 0,
+      "explanation": "Report immediately. Don't fix it yourself or delete evidence. Speed limits the damage.",
+      "scored": true
+    },
+    {
+      "type": "mcq",
+      "question": "A colleague says data privacy is only IT's responsibility. Is that right?",
+      "options": ["Yes, IT owns all data security", "Only for sensitive data", "Only for managers", "No, every employee is responsible for protecting personal data"],
+      "correct": 3,
+      "explanation": "Privacy is everyone's job. Most breaches start with a human mistake.",
+      "scored": true
+    }
+  ]
+}

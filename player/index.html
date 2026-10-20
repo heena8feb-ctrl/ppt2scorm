@@ -1,0 +1,29 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Course</title>
+<link rel="stylesheet" href="player.css">
+</head>
+<body>
+<div class="app">
+  <header class="topbar">
+    <div class="brand"><span class="brand-dot"></span><span id="course-title">Course</span></div>
+    <div class="progress-wrap" aria-label="Course progress">
+      <div class="progress"><div class="progress-fill" id="progress-fill"></div></div>
+      <span class="progress-label" id="progress-label"></span>
+    </div>
+  </header>
+  <main id="stage" class="stage" tabindex="-1" aria-live="polite"></main>
+  <footer class="navbar">
+    <button class="btn ghost" id="btn-back" type="button">&larr; Back</button>
+    <span class="hint" id="nav-hint"></span>
+    <button class="btn primary" id="btn-next" type="button">Next &rarr;</button>
+  </footer>
+</div>
+<script src="course.js"></script>
+<script src="scorm.js"></script>
+<script src="player.js"></script>
+</body>
+</html>

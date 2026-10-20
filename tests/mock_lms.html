@@ -1,0 +1,19 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><title>Mock LMS</title>
+<style>html,body{margin:0;height:100%}iframe{border:0;width:100%;height:100%}</style>
+<script>
+/* A tiny SCORM 1.2 LMS stand-in: stores cmi values (persisted in localStorage to test resume) and logs calls. */
+var store = JSON.parse(localStorage.getItem("cmi") || "{}");
+window.scormLog = [];
+function log(fn, a, b, r) { window.scormLog.push([fn, a, b, r]); return r; }
+window.API = {
+  LMSInitialize: function (a) { return log("LMSInitialize", a, null, "true"); },
+  LMSFinish: function (a) { localStorage.setItem("cmi", JSON.stringify(store)); return log("LMSFinish", a, null, "true"); },
+  LMSGetValue: function (k) { return log("LMSGetValue", k, null, store[k] || ""); },
+  LMSSetValue: function (k, v) { store[k] = v; return log("LMSSetValue", k, v, "true"); },
+  LMSCommit: function () { localStorage.setItem("cmi", JSON.stringify(store)); return log("LMSCommit", "", null, "true"); },
+  LMSGetLastError: function () { return "0"; }, LMSGetErrorString: function () { return ""; }, LMSGetDiagnostic: function () { return ""; }
+};
+window.cmi = function () { return store; };
+</script></head>
+<body><iframe id="sco" src="../out/preview/index.html"></iframe></body></html>

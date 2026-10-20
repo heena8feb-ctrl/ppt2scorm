@@ -1,0 +1,148 @@
+"""Step 2b - Redesign extracted slides into an engaging course using an LLM.
+
+Providers: Claude (Anthropic SDK) or any OpenAI-compatible API (Gemini, OpenRouter, Z.ai GLM, Qwen).
+Without a key, `heuristic_course` builds a basic (less engaging) course so the pipeline still runs.
+"""
+import json
+import os
+import random
+import re
+
+from .schema import SCREEN_FIELDS, CourseError, validate
+
+# name: (API key env var, base_url for OpenAI-compatible APIs or None for Anthropic, default model)
+PROVIDERS = {
+    "claude": ("ANTHROPIC_API_KEY", None, "claude-sonnet-5-5"),
+    "gemini": ("GEMINI_API_KEY", "https://generativelanguage.googleapis.com/v1beta/openai/", "gemini-3.8-flash"),
+    "openrouter": ("OPENROUTER_API_KEY", "https://openrouter.ai/api/v1", None),  # pass --model, e.g. a ':free' model ID
+    "glm": ("ZAI_API_KEY", "https://api.z.ai/api/paas/v4/", "glm-4.7-flash"),
+    "qwen": ("DASHSCOPE_API_KEY", "https://dashscope-intl.aliyuncs.com/compatible-mode/v1", "qwen-plus"),
+}
+DEFAULT_MODEL = os.environ.get("PPT2SCORM_MODEL", PROVIDERS["claude"][2])
+
+
+def detect_provider():
+    """First provider whose API key is set in the environment, or None."""
+    for name, (env, _, _) in PROVIDERS.items():
+        if os.environ.get(env):
+            return name
+    return None
+
+
+def _make_caller(provider, model):
+    env, base_url, default_model = PROVIDERS[provider]
+    key = os.environ.get(env)
+    if not key:
+        raise CourseError(f"{env} is not set (needed for provider '{provider}')")
+    model = model or default_model
+    if not model:
+        raise CourseError(f"provider '{provider}' needs --model")
+    if base_url is None:
+        import anthropic
+        client = anthropic.Anthropic(api_key=key)
+
+        def call(messages):
+            r = client.messages.create(model=model, max_tokens=16000, system=SYSTEM_PROMPT, messages=messages)
+            return "".join(b.text for b in r.content if b.type == "text")
+    else:
+        from openai import OpenAI
+        client = OpenAI(api_key=key, base_url=base_url)
+
+        def call(messages):
+            r = client.chat.completions.create(model=model, max_tokens=16000,
+                                               messages=[{"role": "system", "content": SYSTEM_PROMPT}] + messages)
+            return r.choices[0].message.content or ""
+    return call, model
+
+SYSTEM_PROMPT = """You are a senior instructional designer. You turn slide decks into short,
+engaging e-learning courses. You never invent facts that are not supported by the deck;
+you may rephrase, restructure, and turn content into interactions.
+
+Design rules:
+- Start with an `intro` screen (3-4 measurable learning objectives).
+- Keep every screen short: body <= 60 words, bullets <= 5, each bullet <= 15 words.
+- Do NOT reproduce slides one-to-one. Turn lists of definitions/examples into `flipcards` or `reveal`,
+  term-to-meaning lists into `match`, and any situation/case/example into a `scenario`.
+- Use speaker notes: they usually hold the real teaching point and the right answer to scenarios.
+- Roughly every 2-3 screens, include an interaction (flipcards, reveal, match, scenario).
+- End with a `summary` screen, then a final assessment of 4-6 `mcq` screens with "scored": true.
+  Each mcq: 3-4 plausible options, exactly one correct, an explanation that teaches.
+- Spread the correct answer position across options; avoid "all of the above".
+- Plain, friendly language for a corporate audience.
+
+Output ONLY a JSON object, no markdown fences, matching this schema:
+{
+ "title": str, "description": str (1 sentence), "est_minutes": int, "mastery_score": 80,
+ "screens": [
+  {"type":"intro","title":str,"subtitle":str,"objectives":[str]},
+  {"type":"content","title":str,"body":str,"bullets":[str],"callout":str},
+  {"type":"flipcards","title":str,"instruction":str,"cards":[{"front":str,"back":str}]},
+  {"type":"reveal","title":str,"instruction":str,"items":[{"label":str,"detail":str}]},
+  {"type":"match","title":str,"instruction":str,"pairs":[{"left":str,"right":str}]},
+  {"type":"scenario","title":str,"situation":str,"choices":[{"text":str,"correct":bool,"feedback":str}]},
+  {"type":"summary","title":str,"points":[str]},
+  {"type":"mcq","question":str,"options":[str],"correct":int,"explanation":str,"scored":true}
+ ]
+}
+(bullets and callout are optional on content screens.)"""
+
+
+def _parse_json(text):
+    text = text.strip()
+    text = re.sub(r"^```(?:json)?\s*|\s*```$", "", text)
+    start, end = text.find("{"), text.rfind("}")
+    return json.loads(text[start:end + 1])
+
+
+def ai_course(deck_text, model=None, extra_instructions="", max_retries=2, provider="claude"):
+    """Calls the LLM, validates the JSON, and asks the model to fix it if validation fails."""
+    call, model = _make_caller(provider, model)
+    user = f"Convert this deck into a course.\n{extra_instructions}\n\n<deck>\n{deck_text}\n</deck>"
+    messages = [{"role": "user", "content": user}]
+    last_err = None
+    for _ in range(max_retries + 1):
+        text = call(messages)
+        try:
+            course = _parse_json(text)
+            warnings = validate(course)
+            return course, warnings
+        except (ValueError, CourseError) as e:  # json errors are ValueErrors
+            last_err = e
+            messages += [{"role": "assistant", "content": text},
+                         {"role": "user", "content": f"That JSON failed validation: {e}. Return the corrected full JSON only."}]
+    raise CourseError(f"AI output invalid after retries: {last_err}")
+
+
+def heuristic_course(deck, seed=7):
+    """No-AI fallback: one screen per slide, long lists become reveal screens,
+    plus a simple recall quiz built from slide bullets."""
+    rnd = random.Random(seed)
+    slides = deck["slides"]
+    screens = []
+    first = slides[0]
+    screens.append({"type": "intro", "title": deck["title"],
+                    "subtitle": " · ".join(b["text"] for b in first["blocks"] if "text" in b)[:120],
+                    "objectives": [s["title"] for s in slides[1:5] if s["title"]] or ["Understand the key ideas"]})
+    pool = []  # (slide title, bullet)
+    for s in slides[1:]:
+        bullets = [b["text"] for b in s["blocks"] if "text" in b]
+        pool += [(s["title"], b) for b in bullets]
+        if len(bullets) >= 4:
+            screens.append({"type": "reveal", "title": s["title"], "instruction": "Select each item to learn more.",
+                            "items": [{"label": b.split(":")[0][:60], "detail": b} for b in bullets]})
+        else:
+            screens.append({"type": "content", "title": s["title"], "body": s["notes"] or " ".join(bullets),
+                            "bullets": bullets})
+    screens.append({"type": "summary", "title": "Key takeaways",
+                    "points": [s["title"] for s in slides[1:] if s["title"]][:6]})
+    titles = list({t for t, _ in pool})
+    for t, b in rnd.sample(pool, min(4, len(pool))):
+        others = [x for x in titles if x != t]
+        opts = rnd.sample(others, min(2, len(others))) + [t]
+        rnd.shuffle(opts)
+        screens.append({"type": "mcq", "question": f'Which topic covered this point: "{b}"?',
+                        "options": opts, "correct": opts.index(t),
+                        "explanation": f"This was covered in '{t}'.", "scored": True})
+    course = {"title": deck["title"], "description": f"Interactive course generated from {deck['title']}.",
+              "est_minutes": max(5, len(screens)), "mastery_score": 75, "screens": screens}
+    return course, validate(course)
