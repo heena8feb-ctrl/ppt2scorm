@@ -128,19 +128,28 @@ def heuristic_course(deck, seed=7):
                     "objectives": [s["title"] for s in slides[1:5] if s["title"]] or ["Understand the key ideas"]})
     pool = []  # (slide title, bullet)
     for s in slides[1:]:
+        title = s["title"] or f"Slide {s['index']}"
         bullets = [b["text"] for b in s["blocks"] if "text" in b]
-        pool += [(s["title"], b) for b in bullets]
+        for b in s["blocks"]:  # tables: header row + one bullet per data row
+            if "table" in b and len(b["table"]) > 1:
+                head = b["table"][0]
+                bullets += ["; ".join(f"{h}: {v}" if h else v for h, v in zip(head, row) if v) for row in b["table"][1:]]
+        if not bullets and not s["notes"]:
+            continue  # nothing usable on this slide (e.g. an image-only or thank-you slide)
+        pool += [(title, b) for b in bullets]
         if len(bullets) >= 4:
-            screens.append({"type": "reveal", "title": s["title"], "instruction": "Select each item to learn more.",
+            screens.append({"type": "reveal", "title": title, "instruction": "Select each item to learn more.",
                             "items": [{"label": b.split(":")[0][:60], "detail": b} for b in bullets]})
         else:
-            screens.append({"type": "content", "title": s["title"], "body": s["notes"] or " ".join(bullets),
+            screens.append({"type": "content", "title": title, "body": s["notes"] or " ".join(bullets),
                             "bullets": bullets})
     screens.append({"type": "summary", "title": "Key takeaways",
                     "points": [s["title"] for s in slides[1:] if s["title"]][:6]})
     titles = list({t for t, _ in pool})
     for t, b in rnd.sample(pool, min(4, len(pool))):
         others = [x for x in titles if x != t]
+        if not others:
+            continue  # a one-topic deck can't make a "which topic" question
         opts = rnd.sample(others, min(2, len(others))) + [t]
         rnd.shuffle(opts)
         screens.append({"type": "mcq", "question": f'Which topic covered this point: "{b}"?',
