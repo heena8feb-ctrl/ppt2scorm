@@ -55,11 +55,20 @@ def build_package(course, out_zip, media_dir=None, brand=None, keep_dir=None):
         shutil.copy(PLAYER_DIR / name, build / name)
     if brand:
         course.setdefault("theme", {})["brand"] = brand
+    # copy only the images the course uses; drop references to files that are missing
+    for scr in course["screens"]:
+        img = scr.get("image")
+        if not img:
+            continue
+        src = Path(media_dir or "", Path(img["src"]).name) if media_dir else None
+        if src is None or not src.is_file():
+            scr.pop("image")
+            continue
+        (build / "media").mkdir(exist_ok=True)
+        shutil.copy(src, build / "media" / src.name)
     # Embed the course as JS (not fetched JSON) so it works from file:// and inside any LMS frame.
     payload = json.dumps(course, ensure_ascii=False, indent=1).replace("</", "<\\/")
     (build / "course.js").write_text("window.COURSE = " + payload + ";\n", encoding="utf-8")
-    if media_dir and Path(media_dir).exists() and any(Path(media_dir).iterdir()):
-        shutil.copytree(media_dir, build / "media")
 
     files = sorted(p.relative_to(build).as_posix() for p in build.rglob("*") if p.is_file())
     file_xml = "\n".join(f'      <file href="{escape(f)}"/>' for f in files)

@@ -13,8 +13,11 @@ Screen types (field "type"):
   scenario   title, situation, choices[{text, correct(bool), feedback}]
   mcq        question, options[str], correct(int), explanation, scored(bool)
   summary    title, points[str]
+Optional on intro, content, flipcards, reveal, scenario and mcq screens:
+  image      {"src": "media/<file>", "alt": "what the image shows"}
 Scored MCQs make up the final assessment; score = % correct, pass if >= mastery_score.
 """
+import re
 
 SCREEN_FIELDS = {
     "intro": ["title", "objectives"],
@@ -30,6 +33,65 @@ SCREEN_FIELDS = {
 
 class CourseError(ValueError):
     pass
+
+
+IMAGE_TYPES = {"intro", "content", "flipcards", "reveal", "scenario", "mcq"}
+IMAGE_SRC = re.compile(r"^media/[A-Za-z0-9_.-]{1,120}$")
+
+
+def _tidy_image(i, s, warnings):
+    """Lenient check for AI output: fix a missing media/ prefix, drop anything else that's malformed."""
+    img = s.get("image")
+    if img is None:
+        return
+    if isinstance(img, str):
+        img = s["image"] = {"src": img, "alt": ""}
+    src = img.get("src") if isinstance(img, dict) else None
+    if isinstance(src, str) and "/" not in src.strip():
+        img["src"] = "media/" + src.strip()
+    try:
+        _check_image(i, s)
+    except CourseError as e:
+        s.pop("image", None)
+        warnings.append(f"{e} (image removed)")
+
+
+def _check_image(i, s):
+    img = s.get("image")
+    if img is None:
+        return
+    if s.get("type") not in IMAGE_TYPES:
+        raise CourseError(f"screen {i}: {s.get('type')} screens can't have an image")
+    if not isinstance(img, dict) or not isinstance(img.get("src"), str) or not IMAGE_SRC.match(img["src"]) \
+            or ".." in img["src"]:
+        raise CourseError(f"screen {i}: the image must point to a file in media/")
+    if not isinstance(img.get("alt", ""), str) or len(img.get("alt", "")) > 300:
+        raise CourseError(f"screen {i}: image description must be text under 300 characters")
+
+
+def resolve_images(course, available):
+    """Keep only image references that point at real files; fix common path slips. Returns warnings.
+    available: set or dict of 'media/<file>' paths that exist."""
+    warnings, used = [], set()
+    for i, s in enumerate(course.get("screens", []), 1):
+        img = s.get("image")
+        if img is None:
+            continue
+        src = img.get("src", "") if isinstance(img, dict) else img if isinstance(img, str) else ""
+        src = src.strip().lstrip("./")
+        if src and not src.startswith("media/"):
+            src = "media/" + src.split("/")[-1]
+        if src not in available or s.get("type") not in IMAGE_TYPES:
+            s.pop("image")
+            if src:
+                warnings.append(f"screen {i}: removed an image reference that doesn't exist ({src[:60]})")
+            continue
+        alt = (img.get("alt") if isinstance(img, dict) else "") or ""
+        if not alt and isinstance(available, dict):
+            alt = available[src].get("alt", "")
+        s["image"] = {"src": src, "alt": (alt or s.get("title") or s.get("question") or "")[:300]}
+        used.add(src)
+    return warnings
 
 
 # Field shapes, used to check hand-edited courses (the web editor) before they reach the player.
@@ -75,6 +137,7 @@ def check_types(course):
                         raise CourseError(f"{where} {n}: the choice needs text")
             if k in TEXT_LISTS and any(not x.strip() for x in v):
                 raise CourseError(f"{where}: remove or fill in the empty line")
+        _check_image(i, s)
         if s.get("type") == "mcq" and not (isinstance(s.get("correct"), int) and not isinstance(s.get("correct"), bool)):
             raise CourseError(f"screen {i}: pick the correct answer")
     return validate(course)
@@ -108,6 +171,7 @@ def validate(course):
             raise CourseError(f"screen {i}: scenario needs one correct choice")
         if t == "match" and len(s["pairs"]) < 2:
             raise CourseError(f"screen {i}: match needs at least 2 pairs")
+        _tidy_image(i, s, warnings)
     if not any(s["type"] == "mcq" and s.get("scored", True) for s in course["screens"]):
         warnings.append("no scored questions: course will complete on viewing all screens (no score sent)")
     return warnings

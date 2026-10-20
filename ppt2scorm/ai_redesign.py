@@ -72,6 +72,17 @@ Design rules:
 - Spread the correct answer position across options; avoid "all of the above".
 - Plain, friendly language for a corporate audience.
 
+Images:
+- Slides may list IMAGE lines (photos, diagrams, charts, or whole slides rendered as images).
+  Attach images that help learning with "image": {"src": "<the exact media/... path>", "alt": "<what it shows>"}.
+- Only use paths listed in the deck; never invent one. Use each image at most once. Images can go on
+  intro, content, flipcards, reveal, scenario and mcq screens.
+- A chart or diagram usually belongs on the content or reveal screen that teaches it. A photo of equipment
+  can make a scenario or a question concrete ("Look at the photo: what should the technician check first?").
+- Alt text describes what the image shows for someone who can't see it (e.g. "Bar chart: blocked filters
+  cause 50% of drain complaints"), in one sentence. Don't start with "Image of".
+- If an image is decorative or unclear, leave it out.
+
 Output ONLY a JSON object, no markdown fences, matching this schema:
 {
  "title": str, "description": str (1 sentence), "est_minutes": int, "mastery_score": 80,
@@ -86,7 +97,8 @@ Output ONLY a JSON object, no markdown fences, matching this schema:
   {"type":"mcq","question":str,"options":[str],"correct":int,"explanation":str,"scored":true}
  ]
 }
-(bullets and callout are optional on content screens.)"""
+(bullets and callout are optional on content screens; "image" is optional on intro, content,
+flipcards, reveal, scenario and mcq screens.)"""
 
 
 def _parse_json(text):
@@ -134,15 +146,20 @@ def heuristic_course(deck, seed=7):
             if "table" in b and len(b["table"]) > 1:
                 head = b["table"][0]
                 bullets += ["; ".join(f"{h}: {v}" if h else v for h, v in zip(head, row) if v) for row in b["table"][1:]]
-        if not bullets and not s["notes"]:
-            continue  # nothing usable on this slide (e.g. an image-only or thank-you slide)
+        images = s.get("images") or []
+        if not bullets and not s["notes"] and not images:
+            continue  # nothing usable on this slide (e.g. a thank-you slide)
         pool += [(title, b) for b in bullets]
         if len(bullets) >= 4:
-            screens.append({"type": "reveal", "title": title, "instruction": "Select each item to learn more.",
-                            "items": [{"label": b.split(":")[0][:60], "detail": b} for b in bullets]})
+            screen = {"type": "reveal", "title": title, "instruction": "Select each item to learn more.",
+                      "items": [{"label": b.split(":")[0][:60], "detail": b} for b in bullets]}
         else:
-            screens.append({"type": "content", "title": title, "body": s["notes"] or " ".join(bullets),
-                            "bullets": bullets})
+            what = {"slide": "diagram"}.get(images[0]["kind"], "picture") if images else ""
+            screen = {"type": "content", "title": title,
+                      "body": s["notes"] or " ".join(bullets) or f"Take a close look at this {what}.", "bullets": bullets}
+        if images:
+            screen["image"] = {"src": images[0]["src"], "alt": images[0].get("alt") or title}
+        screens.append(screen)
     screens.append({"type": "summary", "title": "Key takeaways",
                     "points": [s["title"] for s in slides[1:] if s["title"]][:6]})
     titles = list({t for t, _ in pool})

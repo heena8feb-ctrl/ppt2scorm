@@ -1,6 +1,7 @@
 """The conversion pipeline, shared by the command line (cli.py) and the web app (web/app.py)."""
 from .ai_redesign import PROVIDERS, ai_course, detect_provider, heuristic_course
-from .extract import as_prompt_text, extract
+from .extract import as_prompt_text, available_images, extract
+from .schema import resolve_images
 from .package import build_package
 
 
@@ -13,11 +14,16 @@ def design_course(deck, use_ai=True, provider=None, model=None, api_key=None, in
         log(f"asking {provider} ({model}) to redesign the deck")
         course, warnings = ai_course(as_prompt_text(deck), model=model, extra_instructions=instructions,
                                      provider=provider, api_key=api_key)
-        return course, warnings, f"{provider} ({model})"
+        return course, _finish(course, deck, warnings), f"{provider} ({model})"
     if use_ai:
         log("no LLM API key available - using basic (non-AI) conversion")
     course, warnings = heuristic_course(deck)
-    return course, warnings, "basic (no AI)"
+    return course, _finish(course, deck, warnings), "basic (no AI)"
+
+
+def _finish(course, deck, warnings):
+    """Drop image references to files that don't exist, and pass on extraction warnings."""
+    return list(deck.get("warnings", [])) + list(warnings) + resolve_images(course, available_images(deck))
 
 
 def screen_summary(course):

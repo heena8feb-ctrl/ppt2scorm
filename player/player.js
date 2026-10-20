@@ -286,6 +286,50 @@
     save();
   }
 
+  /* ---------- images: beside the text on reading screens, above the activity on interactive ones ---------- */
+  var SIDE = { intro: 1, content: 1, reveal: 1 };
+  var zoomBox = null;
+
+  function zoom(src, alt) {
+    if (!zoomBox) {
+      var img = el("img", { alt: "" });
+      var close = el("button", { class: "zoom-close", type: "button", text: "Close" });
+      zoomBox = el("dialog", { class: "zoombox", "aria-label": "Enlarged image" }, [close, img]);
+      close.addEventListener("click", function () { zoomBox.close(); });
+      zoomBox.addEventListener("click", function (e) { if (e.target === zoomBox) zoomBox.close(); });
+      document.body.appendChild(zoomBox);
+    }
+    var big = zoomBox.querySelector("img");
+    big.src = src; big.alt = alt;
+    if (zoomBox.showModal) zoomBox.showModal(); else window.open(src, "_blank");
+  }
+
+  function withImage(section, s) {
+    var im = s.image;
+    if (!im || !im.src) return section;
+    var alt = im.alt || "";
+    var img = el("img", { src: im.src, alt: alt, loading: "lazy", decoding: "async" });
+    var btn = el("button", { class: "zoom", type: "button", "aria-label": "Enlarge image" + (alt ? ": " + alt : "") }, [img]);
+    var fig = el("figure", { class: "fig" + (SIDE[s.type] ? "" : " stack") }, [btn]);
+    btn.addEventListener("click", function () { zoom(im.src, alt); });
+    img.addEventListener("error", function () { fig.remove(); });
+    var head = section.querySelector("h1, h2");
+    if (SIDE[s.type]) {
+      var rest = [], n = head.nextSibling;
+      while (n) { rest.push(n); n = n.nextSibling; }
+      var text = el("div", { class: "split-text" });
+      rest.forEach(function (x) { text.appendChild(x); });
+      var split = el("div", { class: "split" + (s.type === "intro" ? " on-brand" : "") }, [text, fig]);
+      section.appendChild(split);
+      var wide = function () { if (img.naturalWidth > img.naturalHeight * 2.1) split.classList.add("wide"); };
+      if (img.complete && img.naturalWidth) wide(); else img.addEventListener("load", wide);
+    } else {
+      var after = s.type === "flipcards" ? section.querySelector(".instruction") || head : head;
+      after.parentNode.insertBefore(fig, after.nextSibling);
+    }
+    return section;
+  }
+
   /* ---------- navigation ---------- */
   function updateNav() {
     var gated = state.i < C.screens.length && !state.done[state.i];
@@ -304,7 +348,7 @@
     state.i = Math.max(0, Math.min(i, total - 1));
     stage.innerHTML = "";
     var s = C.screens[state.i];
-    stage.appendChild(state.i === RESULTS ? renderResults() : R[s.type](s));
+    stage.appendChild(state.i === RESULTS ? renderResults() : withImage(R[s.type](s), s));
     updateNav(); save();
     stage.focus({ preventScroll: true }); window.scrollTo(0, 0);
   }

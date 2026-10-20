@@ -2,6 +2,14 @@
 FROM python:3.12-slim
 
 ENV PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1 PORT=7860
+
+# LibreOffice renders slides with charts, SmartArt and shape diagrams into images; poppler turns the PDF into PNGs.
+# Build with --build-arg WITH_RENDERING=0 for a much smaller image without that feature.
+ARG WITH_RENDERING=1
+RUN if [ "$WITH_RENDERING" = "1" ]; then \
+      apt-get update && apt-get install -y --no-install-recommends libreoffice-impress poppler-utils fonts-dejavu fonts-liberation \
+      && rm -rf /var/lib/apt/lists/*; \
+    fi
 WORKDIR /app
 
 COPY requirements.txt .

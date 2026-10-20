@@ -58,6 +58,25 @@ Docker containers, and set the key as a secret environment variable on that host
 
 Keys pasted by visitors are used for that one conversion and are never stored or logged.
 
+### Slide visuals
+
+Photos, diagrams and charts from the deck come through into the course:
+
+- Pictures, including ones inside groups, are extracted and resized. Logos and template art that repeat across
+  slides, and tiny icons, are skipped.
+- Slides whose meaning is in a **chart, SmartArt or a diagram drawn with shapes** are rendered to an image, with
+  the title and empty margins trimmed off. This needs [LibreOffice](https://www.libreoffice.org/download/) installed.
+  On Windows and Mac, also run `pip install pymupdf`. Without them everything else still works, and the app
+  tells you which slides were skipped.
+- The AI places images on the screens they belong to and writes alt text. Basic mode uses each slide's image
+  on that slide's screen.
+- In the course, images sit beside the text, or above a scenario or question, and learners can tap to enlarge.
+  The SCORM package includes only the images the course uses.
+- In the editor, every image-capable screen has an **Image** field: pick any image from the deck, upload your
+  own, or edit its description.
+
+Try it with `samples/visuals_test.pptx`, which has a photo, a chart, a shape diagram and a logo on every slide.
+
 ## Quick start (command line, Windows)
 
 1. Install Python 3.10 or newer from python.org and tick **Add Python to PATH**.
@@ -146,14 +165,13 @@ Learners must complete each interaction before **Next** unlocks. If they fail th
 
 ## Testing before you roll out
 
-1. Build the sample with `python -m ppt2scorm.cli samples/data_privacy_essentials.pptx --course-json samples/data_privacy_essentials.course.json --preview-dir out/preview --out out/sample.zip`, then run `python tests/test_playthrough.py`, `python tests/test_web.py` and `python tests/test_editor.py` (requires `pip install -r requirements-dev.txt && playwright install chromium`).
+1. Build the sample with `python -m ppt2scorm.cli samples/data_privacy_essentials.pptx --course-json samples/data_privacy_essentials.course.json --preview-dir out/preview --out out/sample.zip`, then run `python tests/test_playthrough.py`, `python tests/test_web.py`, `python tests/test_editor.py` and `python tests/test_visuals.py` (requires `pip install -r requirements-dev.txt && playwright install chromium`).
 2. Upload the zip to **SCORM Cloud** (Rustici's free account). It is the standard compatibility check.
 3. Upload to your own LMS's test instance and do one full pass and one deliberate fail.
 
 ## Roadmap ideas
 
 - Narration: generate audio from the narration script with a TTS API and add an audio element to each screen.
-- Show the slide images in `media/` on content screens when a slide is mostly a diagram.
 - SCORM 2004 and xAPI/cmi5 output, and `cmi.interactions` for per-question LMS reports.
 - Include the SCORM 1.2 XSD files in the zip for the strictest LMS validators.
 

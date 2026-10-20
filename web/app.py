@@ -25,7 +25,8 @@ from fastapi.staticfiles import StaticFiles
 
 from ppt2scorm.ai_redesign import PROVIDERS, detect_provider
 from ppt2scorm.pipeline import build_package, design_course, extract, screen_summary
-from ppt2scorm.schema import CourseError, check_types
+from ppt2scorm.schema import CourseError, check_types, resolve_images
+from ppt2scorm.extract import _save_image
 
 DATA = Path(os.environ.get("PPT2SCORM_DATA") or tempfile.mkdtemp(prefix="ppt2scorm_web_"))
 JOBS_DIR = DATA / "jobs"
@@ -93,6 +94,10 @@ def _run(jid, use_ai, provider, api_key, brand, instructions):
         deck = extract(folder / "deck.pptx", folder / "media")
         if not deck["slides"]:
             raise ValueError("The presentation has no slides.")
+        media = [dict(im, slide=sl["index"], slide_title=sl["title"]) for sl in deck["slides"] for im in sl["images"]]
+        seen = set()
+        media = [m for m in media if not (m["src"] in seen or seen.add(m["src"]))]
+        (folder / "media.json").write_text(json.dumps(media, ensure_ascii=False), encoding="utf-8")
         _update(jid, step="design", slides=len(deck["slides"]), title=deck["title"],
                 design_started=time.time())
         course, warnings, how = design_course(deck, use_ai=use_ai, provider=provider, api_key=api_key,
@@ -252,11 +257,12 @@ def _rebuild(jid, course, brand):
     if not isinstance(course, dict):
         raise HTTPException(422, "The course data is missing or damaged.")
     course.pop("theme", None)  # the brand colour comes only from the validated `brand` value
+    folder = JOBS_DIR / jid
     try:
         warnings = check_types(course)
+        warnings += resolve_images(course, {m["src"]: m for m in _media(jid)})
     except CourseError as e:
         raise HTTPException(422, str(e)[:1].upper() + str(e)[1:] + ".")
-    folder = JOBS_DIR / jid
     with _edit_lock(jid):
         nxt_pkg, nxt_zip = folder / "package.next", folder / "course.next.zip"
         build_package(course, nxt_zip, media_dir=folder / "media", brand=brand, keep_dir=nxt_pkg)
@@ -311,6 +317,56 @@ def revert_course(jid: str):
     j = _rebuild(jid, draft, j.get("brand"))
     return {"version": j["version"], "title": j["title"], "screens": j["screens"], "summary": j["summary"],
             "size_kb": j["size_kb"], "warnings": j["warnings"], "edited": False}
+
+
+MEDIA_NAME = re.compile(r"[A-Za-z0-9_.-]{1,120}")
+MAX_IMAGE_BYTES = 8 * 1024 * 1024
+
+
+def _media(jid):
+    f = JOBS_DIR / jid / "media.json"
+    return json.loads(f.read_text(encoding="utf-8")) if f.exists() else []
+
+
+@app.get("/api/jobs/{jid}/media")
+def list_media(jid: str):
+    _ready(jid)
+    return {"images": _media(jid)}
+
+
+@app.get("/api/jobs/{jid}/media/{name}")
+def media_file(jid: str, name: str):
+    _job(jid)
+    if not MEDIA_NAME.fullmatch(name) or ".." in name:
+        raise HTTPException(404, "Not found")
+    target = JOBS_DIR / jid / "media" / name
+    if not target.is_file():
+        raise HTTPException(404, "Not found")
+    return FileResponse(target, headers={"Cache-Control": "private, max-age=3600"})
+
+
+@app.post("/api/jobs/{jid}/media")
+async def upload_media(jid: str, file: UploadFile = File(...), alt: str = Form("")):
+    _ready(jid)
+    data = await file.read(MAX_IMAGE_BYTES + 1)
+    if len(data) > MAX_IMAGE_BYTES:
+        raise HTTPException(413, "That image is over 8 MB. Use a smaller one.")
+    ext = (file.filename or "").rsplit(".", 1)[-1].lower()
+    if ext not in ("png", "jpg", "jpeg", "gif", "webp"):
+        raise HTTPException(400, "Use a PNG, JPG, GIF or WebP image.")
+    import hashlib
+    # Re-encoding through Pillow means only real, browser-safe image data is ever stored or served.
+    res = _save_image(data, "png" if ext in ("png", "gif", "webp") else "jpg", JOBS_DIR / jid / "media",
+                      "up_" + hashlib.sha1(data).hexdigest()[:12])
+    if res is None:
+        raise HTTPException(400, "That file couldn't be read as an image.")
+    name, w, h = res
+    entry = {"src": f"media/{name}", "w": w, "h": h, "alt": alt.strip()[:300], "kind": "upload",
+             "slide": None, "slide_title": file.filename[:80] if file.filename else "Uploaded image"}
+    with _edit_lock(jid):
+        media = [m for m in _media(jid) if m["src"] != entry["src"]] + [entry]
+        (JOBS_DIR / jid / "media.json").write_text(json.dumps(media, ensure_ascii=False), encoding="utf-8")
+    return entry
 
 
 @app.get("/healthz")

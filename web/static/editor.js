@@ -9,22 +9,26 @@
     intro: { label: "Welcome", fields: [
       { k: "title", label: "Course title on the welcome screen", kind: "text", req: true },
       { k: "subtitle", label: "Subtitle", kind: "text" },
-      { k: "objectives", label: "Learning objectives", kind: "list", req: true, add: "Add an objective" }] },
+      { k: "objectives", label: "Learning objectives", kind: "list", req: true, add: "Add an objective" },
+      { k: "image", label: "Image", kind: "image" }] },
     content: { label: "Content", fields: [
       { k: "title", label: "Heading", kind: "text", req: true },
       { k: "body", label: "Main text", kind: "textarea", req: true, help: "Keep it short: about 60 words reads well on one screen." },
       { k: "bullets", label: "Bullet points", kind: "list", add: "Add a bullet point" },
-      { k: "callout", label: "Key message", kind: "text", help: "Optional. Shown in a highlighted box." }] },
+      { k: "callout", label: "Key message", kind: "text", help: "Optional. Shown in a highlighted box." },
+      { k: "image", label: "Image", kind: "image" }] },
     flipcards: { label: "Flip cards", fields: [
       { k: "title", label: "Heading", kind: "text", req: true },
       { k: "instruction", label: "Instruction", kind: "text" },
       { k: "cards", label: "Cards", kind: "records", req: true, min: 1, two: true, add: "Add a card",
-        cells: [{ k: "front", label: "Front" }, { k: "back", label: "Back", area: true }] }] },
+        cells: [{ k: "front", label: "Front" }, { k: "back", label: "Back", area: true }] },
+      { k: "image", label: "Image", kind: "image" }] },
     reveal: { label: "Click to reveal", fields: [
       { k: "title", label: "Heading", kind: "text", req: true },
       { k: "instruction", label: "Instruction", kind: "text" },
       { k: "items", label: "Items", kind: "records", req: true, min: 1, add: "Add an item",
-        cells: [{ k: "label", label: "Label" }, { k: "detail", label: "Shown when opened", area: true }] }] },
+        cells: [{ k: "label", label: "Label" }, { k: "detail", label: "Shown when opened", area: true }] },
+      { k: "image", label: "Image", kind: "image" }] },
     match: { label: "Matching", fields: [
       { k: "title", label: "Heading", kind: "text", req: true },
       { k: "instruction", label: "Instruction", kind: "text" },
@@ -36,12 +40,14 @@
       { k: "situation", label: "Situation", kind: "textarea", req: true },
       { k: "choices", label: "Choices", kind: "records", req: true, min: 2, correct: "radio", add: "Add a choice",
         help: "Mark the best response. Learners keep trying until they find it.",
-        cells: [{ k: "text", label: "Choice" }, { k: "feedback", label: "Feedback after choosing it", area: true }] }] },
+        cells: [{ k: "text", label: "Choice" }, { k: "feedback", label: "Feedback after choosing it", area: true }] },
+      { k: "image", label: "Image", kind: "image" }] },
     summary: { label: "Recap", fields: [
       { k: "title", label: "Heading", kind: "text", req: true },
       { k: "points", label: "Key points", kind: "list", req: true, add: "Add a point" }] },
     mcq: { label: "Quiz question", fields: [
       { k: "question", label: "Question", kind: "textarea", req: true },
+      { k: "image", label: "Image", kind: "image" },
       { k: "options", label: "Answers", kind: "options", req: true, add: "Add an answer", help: "Select the correct answer." },
       { k: "explanation", label: "Explanation shown after answering", kind: "textarea", req: true },
       { k: "scored", label: "Counts toward the score", kind: "check" }] }
@@ -57,7 +63,7 @@
     mcq: function () { return { type: "mcq", question: "", options: ["", ""], correct: 0, explanation: "", scored: true }; }
   };
 
-  var S = { id: null, course: null, brand: "#1f5eff", sel: "course", dirty: false, changed: false, version: 1, onClose: null, previewTimer: null };
+  var S = { media: [], picking: false, id: null, course: null, brand: "#1f5eff", sel: "course", dirty: false, changed: false, version: 1, onClose: null, previewTimer: null };
   var $ = function (id) { return document.getElementById(id); };
 
   function el(tag, attrs, kids) {
@@ -83,7 +89,8 @@
     c.screens.forEach(function (scr, i) {
       TYPES[scr.type].fields.forEach(function (f) {
         var v = scr[f.k], add = function (m, row) { out.push({ s: i, f: f.k, r: row, m: m }); };
-        if (f.kind === "text" || f.kind === "textarea") { if (f.req && blank(v)) add("Fill this in."); }
+        if (f.kind === "image") { if (v && v.src && blank(v.alt)) add("Describe the image for people who can't see it."); }
+        else if (f.kind === "text" || f.kind === "textarea") { if (f.req && blank(v)) add("Fill this in."); }
         else if (f.kind === "list" || f.kind === "options") {
           var filled = (v || []).filter(function (x) { return !blank(x); });
           if (f.req && !filled.length) add("Add at least one line.");
@@ -113,7 +120,9 @@
     c.screens = c.screens.map(function (scr) {
       TYPES[scr.type].fields.forEach(function (f) {
         var v = scr[f.k];
-        if (f.kind === "text" || f.kind === "textarea") {
+        if (f.kind === "image") {
+          if (v && v.src) scr.image = { src: v.src, alt: (v.alt || "").trim() }; else delete scr.image;
+        } else if (f.kind === "text" || f.kind === "textarea") {
           if (typeof v === "string") scr[f.k] = v.trim();
           if (!f.req && blank(scr[f.k])) delete scr[f.k];
         } else if (f.kind === "list") {
@@ -188,10 +197,76 @@
     S.sel = at; touch(); renderForm();
     var first = $("ed-form").querySelector("input, textarea"); if (first) first.focus();
   }
-  function select(i) { S.sel = i; renderOutline(); renderForm(); schedulePreview(); }
+  function select(i) { S.sel = i; S.picking = false; renderOutline(); renderForm(); schedulePreview(); }
 
   /* ---------- form ---------- */
+  function mediaUrl(src) { return "/api/jobs/" + S.id + "/media/" + encodeURIComponent(src.split("/").pop()); }
+  function mediaLabel(m) {
+    if (m.kind === "upload") return "Uploaded: " + (m.slide_title || "image");
+    return "Slide " + m.slide + (m.kind === "slide" ? ", " + (m.reason || "diagram") : ", picture") + (m.slide_title ? ": " + m.slide_title : "");
+  }
+
+  function imageField(scr) {
+    var wrap = el("div", { class: "ed-field", "data-k": "image" });
+    var redraw = function () { var fresh = imageField(scr); wrap.replaceWith(fresh); showErrors(); return fresh; };
+    wrap.appendChild(el("span", { class: "ed-label", text: "Image (optional)" }));
+    var img = scr.image;
+    if (img && img.src) {
+      var alt = el("textarea", { id: "ed-f-image-alt", rows: 2, maxlength: 300 });
+      alt.value = img.alt || "";
+      alt.addEventListener("input", function () { img.alt = alt.value; touch(); });
+      wrap.appendChild(el("div", { class: "ed-img" }, [
+        el("img", { src: mediaUrl(img.src), alt: "" }),
+        el("div", { class: "ed-img-side" }, [
+          el("label", { for: "ed-f-image-alt", text: "Description for people who can't see it" }), alt,
+          el("div", { class: "ed-img-actions" }, [
+            el("button", { type: "button", class: "ed-addrow", text: "Change image", onclick: function () { S.picking = true; redraw(); } }),
+            el("button", { type: "button", class: "ed-del", text: "Remove image", onclick: function () { delete scr.image; S.picking = false; touch(); redraw(); } })])])]));
+    } else if (!S.picking) {
+      wrap.appendChild(el("button", { type: "button", class: "ed-addrow", text: "+ Add an image", onclick: function () { S.picking = true; redraw(); } }));
+    }
+    if (S.picking) wrap.appendChild(picker(scr, redraw));
+    wrap.appendChild(el("span", { class: "ed-err", id: "ed-err-image", role: "status" }));
+    return wrap;
+  }
+
+  function picker(scr, redraw) {
+    var box = el("div", { class: "ed-picker" });
+    var note = el("p", { class: "help", role: "status" });
+    var grid = el("div", { class: "ed-gallery" }, S.media.map(function (m) {
+      return el("button", { type: "button", class: "ed-thumb" + (scr.image && scr.image.src === m.src ? " is-on" : ""),
+        "aria-label": "Use image: " + mediaLabel(m), onclick: function () {
+          var keep = scr.image && scr.image.src === m.src ? scr.image.alt : "";
+          scr.image = { src: m.src, alt: keep || m.alt || (m.kind === "slide" ? "" : "") };
+          S.picking = false; touch(); var f = redraw(); var a = f.querySelector("textarea"); if (a) a.focus();
+        } }, [el("img", { src: mediaUrl(m.src), alt: "", loading: "lazy" }), el("span", { text: mediaLabel(m) })]);
+    }));
+    var up = el("input", { type: "file", accept: "image/png,image/jpeg,image/gif,image/webp", class: "ed-upload-input", id: "ed-upload" });
+    up.addEventListener("change", function () {
+      var file = up.files[0]; if (!file) return;
+      note.textContent = "Uploading " + file.name + "…";
+      var fd = new FormData(); fd.append("file", file);
+      fetch("/api/jobs/" + S.id + "/media", { method: "POST", body: fd })
+        .then(function (r) { return r.json().then(function (j) { if (!r.ok) throw new Error(j.detail || "Upload failed."); return j; }); })
+        .then(function (m) {
+          S.media = S.media.filter(function (x) { return x.src !== m.src; }).concat([m]);
+          scr.image = { src: m.src, alt: "" }; S.picking = false; touch();
+          var f = redraw(); var a = f.querySelector("textarea"); if (a) a.focus();
+        })
+        .catch(function (e) { note.textContent = e.message; });
+    });
+    box.appendChild(el("p", { class: "ed-picker-head", text: S.media.length ? "Choose an image from your deck, or upload one." : "This deck has no usable images. Upload one." }));
+    if (S.media.length) box.appendChild(grid);
+    box.appendChild(el("div", { class: "ed-img-actions" }, [
+      el("label", { class: "ed-addrow ed-upload", for: "ed-upload", text: "Upload an image" }), up,
+      el("button", { type: "button", class: "ed-del", text: "Cancel", onclick: function () { S.picking = false; redraw(); } })]));
+    box.appendChild(el("p", { class: "help", text: "PNG, JPG, GIF or WebP, up to 8 MB. Large images are resized automatically." }));
+    box.appendChild(note);
+    return box;
+  }
+
   function field(f, scr) {
+    if (f.kind === "image") return imageField(scr);
     var id = "ed-f-" + f.k, wrap = el("div", { class: "ed-field", "data-k": f.k }), v = scr[f.k];
     var onText = function (e) { scr[f.k] = e.target.value; touch(); if (f.k === "title" || f.k === "question") renderOutline(); };
     if (f.kind === "check") {
@@ -359,6 +434,7 @@
   }
 
   function load() {
+    api("GET", "/api/jobs/" + S.id + "/media").then(function (j) { S.media = j.images || []; }).catch(function () { S.media = []; });
     return api("GET", "/api/jobs/" + S.id + "/course").then(function (j) {
       S.course = j.course; S.brand = j.brand; S.version = j.version; S.dirty = false;
       if (typeof S.course.mastery_score !== "number") S.course.mastery_score = 80;
