@@ -322,6 +322,9 @@
   if (!st || st === "not attempted") SCORM.set("cmi.core.lesson_status", "incomplete");
   state.completed = st === "passed" || st === "completed";
   restore();
+  // Preview only (no LMS): "#screen=N" opens screen N, so an editor can show the screen just changed.
+  var jump = !SCORM.connected && /(?:^#|&)screen=(\d+)/.exec(location.hash);
+  if (jump) state.i = Math.min(parseInt(jump[1], 10), total - 1);
   function leave() { SCORM.finish(state.completed ? "" : "suspend"); }
   window.addEventListener("pagehide", leave);
   window.addEventListener("beforeunload", leave);

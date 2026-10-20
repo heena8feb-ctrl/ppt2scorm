@@ -21,9 +21,11 @@ from pathlib import Path
 
 from fastapi import FastAPI, File, Form, HTTPException, Request, UploadFile
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
+from fastapi.staticfiles import StaticFiles
 
 from ppt2scorm.ai_redesign import PROVIDERS, detect_provider
 from ppt2scorm.pipeline import build_package, design_course, extract, screen_summary
+from ppt2scorm.schema import CourseError, check_types
 
 DATA = Path(os.environ.get("PPT2SCORM_DATA") or tempfile.mkdtemp(prefix="ppt2scorm_web_"))
 JOBS_DIR = DATA / "jobs"
@@ -60,6 +62,7 @@ def _cleanup():
         old = [jid for jid, j in jobs.items() if now - j["created"] > JOB_TTL]
         for jid in old:
             jobs.pop(jid, None)
+            edit_locks.pop(jid, None)
     for jid in old:
         shutil.rmtree(JOBS_DIR / jid, ignore_errors=True)
 
@@ -96,10 +99,12 @@ def _run(jid, use_ai, provider, api_key, brand, instructions):
                                               instructions=instructions, log=lambda m: None)
         api_key = None  # not kept beyond this point
         _update(jid, step="package")
-        (folder / "course.json").write_text(json.dumps(course, indent=2, ensure_ascii=False), encoding="utf-8")
+        text = json.dumps(course, indent=2, ensure_ascii=False)
+        (folder / "course.json").write_text(text, encoding="utf-8")
+        (folder / "course.draft.json").write_text(text, encoding="utf-8")  # untouched copy for "revert"
         build_package(course, folder / "course.zip", media_dir=folder / "media", brand=brand,
                       keep_dir=folder / "package")
-        _update(jid, step="done", status="done", how=how, warnings=warnings, title=course["title"],
+        _update(jid, step="done", status="done", how=how, warnings=warnings, title=course["title"], version=1,
                 summary=screen_summary(course), screens=len(course["screens"]),
                 size_kb=(folder / "course.zip").stat().st_size // 1024)
     except Exception as e:  # noqa: BLE001 - every failure is reported to the user
@@ -165,7 +170,7 @@ async def convert(request: Request, file: UploadFile = File(...), mode: str = Fo
 
     with lock:
         jobs[jid] = {"id": jid, "status": "running", "step": "upload", "created": time.time(),
-                     "filename": Path(file.filename).name, "mode": mode,
+                     "filename": Path(file.filename).name, "mode": mode, "brand": brand or None,
                      "provider": PROVIDER_LABELS[provider] if use_ai else None}
     pool.submit(_run, jid, use_ai, provider if use_ai else None, api_key or None, brand or None, instructions)
     return {"job_id": jid}
@@ -224,6 +229,93 @@ def preview(jid: str, path: str):
     return FileResponse(target, headers={"Cache-Control": "no-store"})
 
 
+# ---------- editor: load, save (validate + rebuild), revert ----------
+MAX_EDIT_BYTES = 2 * 1024 * 1024
+HEX = re.compile(r"#[0-9a-fA-F]{6}")
+edit_locks = {}
+
+
+def _edit_lock(jid):
+    with lock:
+        return edit_locks.setdefault(jid, threading.Lock())
+
+
+def _ready(jid):
+    j = _job(jid)
+    if j.get("status") != "done":
+        raise HTTPException(409, "The course isn't ready yet.")
+    return j
+
+
+def _rebuild(jid, course, brand):
+    """Validate a course, rebuild the package beside the live one, then swap it in."""
+    if not isinstance(course, dict):
+        raise HTTPException(422, "The course data is missing or damaged.")
+    course.pop("theme", None)  # the brand colour comes only from the validated `brand` value
+    try:
+        warnings = check_types(course)
+    except CourseError as e:
+        raise HTTPException(422, str(e)[:1].upper() + str(e)[1:] + ".")
+    folder = JOBS_DIR / jid
+    with _edit_lock(jid):
+        nxt_pkg, nxt_zip = folder / "package.next", folder / "course.next.zip"
+        build_package(course, nxt_zip, media_dir=folder / "media", brand=brand, keep_dir=nxt_pkg)
+        old_pkg = folder / "package.old"
+        shutil.rmtree(old_pkg, ignore_errors=True)
+        if (folder / "package").exists():
+            os.replace(folder / "package", old_pkg)
+        os.replace(nxt_pkg, folder / "package")
+        os.replace(nxt_zip, folder / "course.zip")
+        shutil.rmtree(old_pkg, ignore_errors=True)
+        course.pop("theme", None)
+        (folder / "course.json").write_text(json.dumps(course, indent=2, ensure_ascii=False), encoding="utf-8")
+        with lock:
+            j = jobs[jid]
+            j.update(title=course["title"], warnings=warnings, summary=screen_summary(course),
+                     screens=len(course["screens"]), size_kb=(folder / "course.zip").stat().st_size // 1024,
+                     brand=brand, version=j.get("version", 1) + 1)
+            return dict(j)
+
+
+@app.get("/api/jobs/{jid}/course")
+def get_course(jid: str):
+    j = _ready(jid)
+    folder = JOBS_DIR / jid
+    course = json.loads((folder / "course.json").read_text(encoding="utf-8"))
+    edited = (folder / "course.json").read_bytes() != (folder / "course.draft.json").read_bytes()
+    return {"course": course, "brand": j.get("brand") or "#1f5eff", "edited": edited, "version": j.get("version", 1)}
+
+
+@app.put("/api/jobs/{jid}/course")
+async def save_course(jid: str, request: Request):
+    _ready(jid)
+    raw = await request.body()
+    if len(raw) > MAX_EDIT_BYTES:
+        raise HTTPException(413, "The course is too large to save.")
+    try:
+        body = json.loads(raw)
+    except ValueError:
+        raise HTTPException(400, "The editor sent data the server couldn't read. Reload the page and try again.")
+    brand = body.get("brand") or None
+    if brand is not None and not (isinstance(brand, str) and HEX.fullmatch(brand)):
+        raise HTTPException(422, "Brand colour must look like #1f5eff.")
+    j = _rebuild(jid, body.get("course"), brand)
+    return {"version": j["version"], "title": j["title"], "screens": j["screens"], "summary": j["summary"],
+            "size_kb": j["size_kb"], "warnings": j["warnings"], "edited": True}
+
+
+@app.post("/api/jobs/{jid}/revert")
+def revert_course(jid: str):
+    j = _ready(jid)
+    draft = json.loads((JOBS_DIR / jid / "course.draft.json").read_text(encoding="utf-8"))
+    j = _rebuild(jid, draft, j.get("brand"))
+    return {"version": j["version"], "title": j["title"], "screens": j["screens"], "summary": j["summary"],
+            "size_kb": j["size_kb"], "warnings": j["warnings"], "edited": False}
+
+
 @app.get("/healthz")
 def health():
     return {"ok": True}
+
+
+app.mount("/static", StaticFiles(directory=STATIC), name="static")

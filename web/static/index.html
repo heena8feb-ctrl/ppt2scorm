@@ -8,6 +8,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Atkinson+Hyperlegible:wght@400;700&family=Bricolage+Grotesque:opsz,wght@12..96,500;12..96,700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/static/editor.css">
 <style>
 :root {
   --paper: #f3f5f4;
@@ -225,6 +226,7 @@ details.adv .panel { margin-top: 18px; }
       </div>
       <div class="actions is-hidden" id="actions-done">
         <a class="btn primary" id="dl-zip" href="#" download>Download SCORM package</a>
+        <button type="button" class="btn" id="edit">Review and edit</button>
         <a class="btn" id="dl-json" href="#" download>Download course JSON</a>
         <button type="button" class="btn" id="again">Convert another deck</button>
       </div>
@@ -394,6 +396,7 @@ details.adv .panel { margin-top: 18px; }
     scenario: ["scenario", "scenarios"], summary: ["recap", "recaps"], mcq: ["quiz question", "quiz questions"] };
 
   function finish(id, j) {
+    currentJob = id;
     $("preview").src = "/preview/" + id + "/index.html";
     $("dl-zip").href = "/api/jobs/" + id + "/download";
     $("dl-json").href = "/api/jobs/" + id + "/course.json";
@@ -408,11 +411,25 @@ details.adv .panel { margin-top: 18px; }
     setState("done");
   }
 
+  var currentJob = null;
+  $("edit").addEventListener("click", function () {
+    CourseEditor.open(currentJob, function (changed) {
+      if (!changed) { $("edit").focus(); return; }
+      fetch("/api/jobs/" + currentJob).then(function (r) { return r.json(); }).then(function (j) {
+        finish(currentJob, j);
+        $("preview").src = "/preview/" + currentJob + "/index.html?v=" + j.version;
+        $("summary").appendChild(document.createTextNode(" Includes your edits."));
+        $("edit").focus();
+      });
+    });
+  });
+
   $("again").addEventListener("click", function () {
     file = null; $("preview").src = "about:blank"; $("warn").textContent = "";
     setState("empty"); $("drop").focus();
   });
 })();
 </script>
+<script src="/static/editor.js"></script>
 </body>
 </html>

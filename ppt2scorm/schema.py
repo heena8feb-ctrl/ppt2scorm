@@ -32,6 +32,54 @@ class CourseError(ValueError):
     pass
 
 
+# Field shapes, used to check hand-edited courses (the web editor) before they reach the player.
+TEXT_FIELDS = {"title", "subtitle", "body", "callout", "instruction", "situation", "question", "explanation"}
+TEXT_LISTS = {"objectives", "bullets", "points", "options"}
+RECORD_LISTS = {"cards": ("front", "back"), "items": ("label", "detail"), "pairs": ("left", "right"),
+                "choices": ("text", "feedback")}
+MAX_TEXT = 4000
+
+
+def check_types(course):
+    """Strict shape check for courses edited by people. Raises CourseError naming the screen and field."""
+    if not isinstance(course, dict) or not isinstance(course.get("screens"), list):
+        raise CourseError("the course must be an object with a list of screens")
+    if not isinstance(course.get("title", ""), str) or not course.get("title", "").strip():
+        raise CourseError("the course needs a title")
+    for k, lo, hi in (("mastery_score", 0, 100), ("est_minutes", 1, 600)):
+        if k in course and (not isinstance(course[k], int) or isinstance(course[k], bool) or not lo <= course[k] <= hi):
+            raise CourseError(f"{k.replace('_', ' ')} must be a whole number from {lo} to {hi}")
+    if len(course["screens"]) > 200:
+        raise CourseError("a course can have at most 200 screens")
+    for i, s in enumerate(course["screens"], 1):
+        if not isinstance(s, dict):
+            raise CourseError(f"screen {i}: not a valid screen")
+        for k, v in s.items():
+            where = f"screen {i}, {k}"
+            if k in TEXT_FIELDS and not isinstance(v, str):
+                raise CourseError(f"{where}: must be text")
+            if k in TEXT_FIELDS and len(v) > MAX_TEXT:
+                raise CourseError(f"{where}: too long (max {MAX_TEXT} characters)")
+            if k in TEXT_LISTS and (not isinstance(v, list) or not all(isinstance(x, str) for x in v)):
+                raise CourseError(f"{where}: must be a list of text")
+            if k in RECORD_LISTS:
+                if not isinstance(v, list) or not all(isinstance(x, dict) for x in v):
+                    raise CourseError(f"{where}: must be a list of items")
+                for n, rec in enumerate(v, 1):
+                    for f in RECORD_LISTS[k]:
+                        if not isinstance(rec.get(f, ""), str):
+                            raise CourseError(f"{where} {n}: '{f}' must be text")
+                    if k != "choices" and any(not str(rec.get(f, "")).strip() for f in RECORD_LISTS[k]):
+                        raise CourseError(f"{where} {n}: fill in both sides")
+                    if k == "choices" and not str(rec.get("text", "")).strip():
+                        raise CourseError(f"{where} {n}: the choice needs text")
+            if k in TEXT_LISTS and any(not x.strip() for x in v):
+                raise CourseError(f"{where}: remove or fill in the empty line")
+        if s.get("type") == "mcq" and not (isinstance(s.get("correct"), int) and not isinstance(s.get("correct"), bool)):
+            raise CourseError(f"screen {i}: pick the correct answer")
+    return validate(course)
+
+
 def validate(course):
     """Raises CourseError with a readable message; returns list of warnings."""
     warnings = []

@@ -24,6 +24,19 @@ No command line needed for the people using it.
 
 ![The ppt2scorm web app showing a converted course in the preview frame](docs/web-app.png)
 
+### Review and edit before you download
+
+AI drafts need a human check. After converting, click **Review and edit** to open the course editor:
+
+- Every screen is listed in order. Move, delete or add screens: welcome, content, flip cards, click to reveal,
+  matching, scenario, recap and quiz questions.
+- Edit any text, pick the correct quiz answer or best scenario response, and set the pass mark, duration and brand colour.
+- Problems are flagged as you type, such as a question with no correct answer, and saving is blocked until they're fixed.
+- **Save and preview** rebuilds the SCORM package in about a second, and the preview opens on the screen you edited.
+- **Revert to AI draft** discards every edit.
+
+![The course editor: screen outline, the fields for a scenario, and the live preview](docs/editor.png)
+
 Run it on your own computer:
 
 ```bash
@@ -133,7 +146,7 @@ Learners must complete each interaction before **Next** unlocks. If they fail th
 
 ## Testing before you roll out
 
-1. Build the sample with `python -m ppt2scorm.cli samples/data_privacy_essentials.pptx --course-json samples/data_privacy_essentials.course.json --preview-dir out/preview --out out/sample.zip`, then run `python tests/test_playthrough.py` and `python tests/test_web.py` (requires `pip install -r requirements-dev.txt && playwright install chromium`).
+1. Build the sample with `python -m ppt2scorm.cli samples/data_privacy_essentials.pptx --course-json samples/data_privacy_essentials.course.json --preview-dir out/preview --out out/sample.zip`, then run `python tests/test_playthrough.py`, `python tests/test_web.py` and `python tests/test_editor.py` (requires `pip install -r requirements-dev.txt && playwright install chromium`).
 2. Upload the zip to **SCORM Cloud** (Rustici's free account). It is the standard compatibility check.
 3. Upload to your own LMS's test instance and do one full pass and one deliberate fail.
 
@@ -141,7 +154,6 @@ Learners must complete each interaction before **Next** unlocks. If they fail th
 
 - Narration: generate audio from the narration script with a TTS API and add an audio element to each screen.
 - Show the slide images in `media/` on content screens when a slide is mostly a diagram.
-- A screen-by-screen visual editor in the web app, so reviewers can fix questions without touching JSON.
 - SCORM 2004 and xAPI/cmi5 output, and `cmi.interactions` for per-question LMS reports.
 - Include the SCORM 1.2 XSD files in the zip for the strictest LMS validators.
 
