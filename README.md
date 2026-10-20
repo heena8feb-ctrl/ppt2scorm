@@ -7,6 +7,10 @@ The tool doesn't just copy the slides. It uses an LLM (Gemini, Claude, GLM, Qwen
 to **redesign** the deck into short screens with flip cards, click-to-reveal lists, matching exercises,
 branching scenarios, and a scored final quiz.
 
+![Course player screens: intro, flip cards, branching scenario and quiz result](docs/screenshots.png)
+
+*Generated from the sample deck in `samples/`. [Download the finished SCORM package](https://github.com/heena8feb-ctrl/ppt2scorm/releases) to try it in your LMS.*
+
 ```
 PPTX ──► 1. extract ──► 2. AI redesign (LLM) ──► course.json ──► 3. player + SCORM packager ──► course.zip
                                │                     ▲
