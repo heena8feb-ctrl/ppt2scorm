@@ -168,6 +168,7 @@ details.adv .panel { margin-top: 18px; }
           <ol class="steps" id="steps">
             <li data-step="extract">Reading slides and speaker notes<span class="sub" id="sub-extract"></span></li>
             <li data-step="design">Designing the course<span class="sub" id="sub-design"></span></li>
+            <li data-step="narrate" id="step-narrate">Recording narration<span class="sub" id="sub-narrate"></span></li>
             <li data-step="package">Packaging for your LMS<span class="sub">SCORM 1.2 with score, pass mark and resume</span></li>
           </ol>
         </div>
@@ -198,6 +199,20 @@ details.adv .panel { margin-top: 18px; }
               <input type="color" id="brand-pick" value="#1f5eff" aria-label="Pick brand colour">
               <input type="text" id="brand-text" name="brand" value="#1f5eff" maxlength="7" spellcheck="false">
             </div>
+          </div>
+          <div class="field">
+            <span class="legend" id="narr-label">Narration</span>
+            <div class="seg" role="radiogroup" aria-labelledby="narr-label">
+              <label><input type="radio" name="narration" value="off" checked>Off</label>
+              <label><input type="radio" name="narration" value="audio">AI voice</label>
+              <label><input type="radio" name="narration" value="device">Device voice</label>
+            </div>
+            <p class="help" id="narr-help">No voice-over.</p>
+          </div>
+          <div class="field" id="voice-field">
+            <label for="voice">Voice</label>
+            <select id="voice" name="voice"></select>
+            <p class="help">Google Gemini voices. Each screen gets a short spoken script, with captions.</p>
           </div>
           <div class="field full ai-only">
             <label for="instructions">Notes for the AI <span class="help">(optional)</span></label>
@@ -301,9 +316,16 @@ details.adv .panel { margin-top: 18px; }
   // settings
   function mode() { return form.querySelector("input[name=mode]:checked").value; }
   function providerInfo() { return cfg.providers.filter(function (p) { return p.id === $("provider").value; })[0]; }
+  function narration() { return form.querySelector("input[name=narration]:checked").value; }
   function refreshSettings() {
-    var ai = mode() === "ai";
-    document.querySelectorAll(".ai-only").forEach(function (el) { el.classList.toggle("is-hidden", !ai); });
+    var ai = mode() === "ai", nar = narration();
+    document.querySelectorAll(".ai-only").forEach(function (el) { el.classList.toggle("is-hidden", !ai && nar !== "audio"); });
+    $("instructions").closest(".field").classList.toggle("is-hidden", !ai);
+    $("voice-field").classList.toggle("is-hidden", nar !== "audio");
+    $("narr-help").textContent = { off: "No voice-over.",
+      audio: "Records a natural voice-over for every screen with Google Gemini. Adds a minute or two." +
+        (cfg.tts_server_key ? "" : " Needs a Gemini API key."),
+      device: "No recording: the learner's computer reads each screen aloud. Quality depends on their device." }[nar];
     $("mode-help").textContent = ai ? "Redesigns the content into interactions and writes the quiz."
       : "No AI: one screen per slide and a simple recall quiz. Nothing leaves this server.";
     var p = providerInfo();
@@ -327,6 +349,10 @@ details.adv .panel { margin-top: 18px; }
       $("provider").appendChild(o);
     });
     $("provider").value = c.default_provider;
+    (c.voices || []).forEach(function (v) {
+      var o = document.createElement("option"); o.value = v.id; o.textContent = v.label; $("voice").appendChild(o);
+    });
+    if (c.default_voice) $("voice").value = c.default_voice;
     var p = providerInfo();
     if (p && !p.server_key) document.querySelector("details.adv").open = true;
     refreshSettings();
@@ -344,7 +370,14 @@ details.adv .panel { margin-top: 18px; }
       $("frame-note").textContent = "Paste an API key for " + p.label + ", or choose Basic.";
       $("api_key").focus(); return;
     }
+    if (narration() === "audio" && !cfg.tts_server_key && !($("provider").value === "gemini" && $("api_key").value.trim())) {
+      document.querySelector("details.adv").open = true;
+      $("frame-note").textContent = "AI voice needs a Google Gemini key: choose Google Gemini as the provider and paste your key, or choose Device voice.";
+      $("provider").focus(); return;
+    }
     var fd = new FormData();
+    fd.append("narration", narration());
+    fd.append("voice", $("voice").value);
     fd.append("file", file);
     fd.append("mode", mode());
     fd.append("provider", $("provider").value || "gemini");
@@ -352,7 +385,8 @@ details.adv .panel { margin-top: 18px; }
     fd.append("brand", brand);
     fd.append("instructions", $("instructions").value);
     markSteps("extract", {});
-    $("sub-extract").textContent = ""; $("sub-design").textContent = "";
+    $("sub-extract").textContent = ""; $("sub-design").textContent = ""; $("sub-narrate").textContent = "";
+    $("step-narrate").classList.toggle("is-hidden", narration() !== "audio");
     $("frame-note").textContent = "Uploading " + file.name + "…";
     setState("busy");
     fetch("/api/convert", { method: "POST", body: fd })
@@ -362,13 +396,15 @@ details.adv .panel { margin-top: 18px; }
   });
 
   function markSteps(current, j) {
-    var order = ["extract", "design", "package"], idx = order.indexOf(current);
-    if (current === "done") idx = 3;
-    document.querySelectorAll("#steps li").forEach(function (li, i) {
-      li.className = i < idx ? "ok" : i === idx ? "now" : "";
+    var order = ["extract", "design", "narrate", "package"], idx = order.indexOf(current);
+    if (current === "done") idx = 4;
+    document.querySelectorAll("#steps li").forEach(function (li) {
+      var i = order.indexOf(li.dataset.step);
+      li.classList.toggle("ok", i < idx); li.classList.toggle("now", i === idx);
       if (i === idx) li.setAttribute("aria-current", "step"); else li.removeAttribute("aria-current");
     });
     if (j.slides) $("sub-extract").textContent = j.slides + " slides";
+    if (current === "narrate" && j.narr_total) $("sub-narrate").textContent = "Screen " + Math.min(j.narr_done + 1, j.narr_total) + " of " + j.narr_total;
     if (current === "design") {
       var s = j.design_seconds || 0;
       $("sub-design").textContent = (j.mode === "ai" ? "Writing interactions and quiz with " + j.provider : "Building screens and quiz") +

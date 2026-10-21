@@ -63,8 +63,10 @@
     mcq: function () { return { type: "mcq", question: "", options: ["", ""], correct: 0, explanation: "", scored: true }; }
   };
 
-  var S = { media: [], picking: false, id: null, course: null, brand: "#1f5eff", sel: "course", dirty: false, changed: false, version: 1, onClose: null, previewTimer: null };
+  var S = { media: [], picking: false, cfg: null, needsAudio: 0, recording: false, ttsServerKey: false, voPoll: null, id: null, course: null, brand: "#1f5eff", sel: "course", dirty: false, changed: false, version: 1, onClose: null, previewTimer: null };
   var $ = function (id) { return document.getElementById(id); };
+  var savedNarr = new WeakMap();   // screen -> narration text as last saved (to spot audio that will need re-recording)
+  var MAX_NARR = 1500;
 
   function el(tag, attrs, kids) {
     var n = document.createElement(tag);
@@ -87,6 +89,7 @@
     if (!(c.est_minutes >= 1 && c.est_minutes <= 600)) out.push({ s: "course", f: "est_minutes", m: "Use a number from 1 to 600." });
     if (!c.screens.length) out.push({ s: "course", f: "screens", m: "Add at least one screen." });
     c.screens.forEach(function (scr, i) {
+      if (typeof scr.narration === "string" && scr.narration.length > MAX_NARR) out.push({ s: i, f: "narration", m: "Keep the script under " + MAX_NARR + " characters." });
       TYPES[scr.type].fields.forEach(function (f) {
         var v = scr[f.k], add = function (m, row) { out.push({ s: i, f: f.k, r: row, m: m }); };
         if (f.kind === "image") { if (v && v.src && blank(v.alt)) add("Describe the image for people who can't see it."); }
@@ -118,6 +121,7 @@
     var c = JSON.parse(JSON.stringify(S.course));
     c.title = (c.title || "").trim();
     c.screens = c.screens.map(function (scr) {
+      if (typeof scr.narration === "string") { scr.narration = scr.narration.trim(); if (!scr.narration) delete scr.narration; }
       TYPES[scr.type].fields.forEach(function (f) {
         var v = scr[f.k];
         if (f.kind === "image") {
@@ -168,7 +172,10 @@
     var n = errs.length;
     if (!S.saving) status(S.dirty ? "Unsaved changes" + (n ? ". " + n + (n === 1 ? " thing needs" : " things need") + " fixing before you can save." : ".") :
       (S.changed ? "All changes saved. Downloads include your edits." : "Showing the AI draft. Changes are saved when you click Save and preview."), S.dirty ? "dirty" : "");
-    $("ed-save").disabled = !S.dirty || n > 0;
+    $("ed-save").disabled = !S.dirty || n > 0 || S.recording;
+    var rb = $("ed-audio");
+    rb.classList.toggle("is-hidden", !(voMode() === "audio" && (S.needsAudio || S.recording)));
+    rb.textContent = S.recording ? "Recording audio…" : "Record audio (" + S.needsAudio + ")";
   }
 
   function status(text, kind) {
@@ -343,6 +350,97 @@
     return box;
   }
 
+  function fmtTime(sec) { sec = Math.round(sec || 0); return Math.floor(sec / 60) + ":" + ("0" + (sec % 60)).slice(-2); }
+  function voMode() { return (S.course.voiceover && S.course.voiceover.mode) || "off"; }
+
+  function narrationField(scr) {
+    var wrap = el("div", { class: "ed-field ed-narr", "data-k": "narration" });
+    var ta = el("textarea", { id: "ed-f-narration", rows: 3, maxlength: MAX_NARR + 200 });
+    ta.value = scr.narration || "";
+    var note = el("p", { class: "help ed-narr-status" });
+    var refresh = function () {
+      var mode = voMode(), changed = (scr.narration || "").trim() !== (savedNarr.get(scr) || "").trim();
+      note.innerHTML = "";
+      if (mode === "off") note.textContent = "Voice-over is off for this course. Turn it on in Course settings.";
+      else if (mode === "device") note.textContent = "Read aloud by the learner's device.";
+      else if (scr.audio && !changed) {
+        note.appendChild(document.createTextNode("Recorded (" + fmtTime(scr.audio.duration) + "). "));
+        note.appendChild(el("audio", { controls: "", preload: "none", src: mediaUrl(scr.audio.src), "aria-label": "Recorded narration" }));
+      } else note.textContent = changed && scr.audio ? "Changed: this screen will need new audio after you save." : "No audio yet. Save, then record audio in Course settings.";
+    };
+    ta.addEventListener("input", function () { scr.narration = ta.value; touch(); refresh(); });
+    wrap.appendChild(el("label", { class: "ed-label", for: "ed-f-narration", text: "Narration script (optional)" }));
+    wrap.appendChild(ta);
+    wrap.appendChild(el("p", { class: "help", text: "What the voice says on this screen. One to three short sentences works best; never give away a quiz answer." }));
+    wrap.appendChild(note);
+    wrap.appendChild(el("span", { class: "ed-err", id: "ed-err-narration", role: "status" }));
+    refresh();
+    return wrap;
+  }
+
+  function voiceSection() {
+    var c = S.course, vo = c.voiceover = c.voiceover || { mode: "off" };
+    var box = el("div", { class: "ed-vo", id: "ed-vo" });
+    box.appendChild(el("h4", { text: "Voice-over" }));
+    var modeSel = el("select", { id: "ed-c-vomode" }, [
+      el("option", { value: "off", text: "Off" }), el("option", { value: "audio", text: "AI voice (recorded with Google Gemini)" }),
+      el("option", { value: "device", text: "Device voice (read aloud by the learner's computer)" })]);
+    modeSel.value = vo.mode || "off";
+    modeSel.addEventListener("change", function () { vo.mode = modeSel.value; touch(); renderForm(); });
+    box.appendChild(el("div", { class: "ed-field" }, [el("label", { class: "ed-label", for: "ed-c-vomode", text: "Narration" }), modeSel]));
+    if (vo.mode === "audio") {
+      var voices = (S.cfg && S.cfg.voices) || [];
+      var vSel = el("select", { id: "ed-c-voice" }, voices.map(function (v) { return el("option", { value: v.id, text: v.label }); }));
+      vSel.value = vo.voice || (S.cfg && S.cfg.default_voice) || "";
+      vSel.addEventListener("change", function () { vo.voice = vSel.value; touch(); renderForm(); });
+      box.appendChild(el("div", { class: "ed-field" }, [el("label", { class: "ed-label", for: "ed-c-voice", text: "Voice" }), vSel,
+        el("p", { class: "help", text: "Changing the voice means every screen is recorded again." })]));
+      var scripts = c.screens.filter(function (x) { return (x.narration || "").trim(); }).length;
+      var rec = el("div", { class: "ed-record" });
+      var msg = S.recording ? "Recording audio…" : S.dirty ? "Save your changes, then record audio." :
+        S.needsAudio ? S.needsAudio + (S.needsAudio === 1 ? " screen needs" : " screens need") + " audio." :
+        scripts ? "All " + scripts + " narrated screens have audio." : "No screen has a narration script yet.";
+      rec.appendChild(el("p", { class: "ed-record-msg", id: "ed-record-msg", role: "status", text: msg }));
+      var key = null;
+      if (!S.ttsServerKey) {
+        key = el("input", { type: "password", id: "ed-tts-key", autocomplete: "off", spellcheck: "false", placeholder: "Paste your Gemini API key" });
+        rec.appendChild(el("label", { class: "ed-label", for: "ed-tts-key", text: "Gemini API key" }));
+        rec.appendChild(key);
+        rec.appendChild(el("p", { class: "help", text: "Used for this recording only and never stored." }));
+      }
+      rec.appendChild(el("button", { type: "button", class: "btn primary", id: "ed-record", text: "Record audio",
+        disabled: S.recording || S.dirty || !S.needsAudio ? "" : false, onclick: function () { record(key ? key.value.trim() : ""); } }));
+      box.appendChild(rec);
+    }
+    return box;
+  }
+
+  function record(key) {
+    if (!S.ttsServerKey && !key) { $("ed-record-msg").textContent = "Paste a Gemini API key first."; $("ed-tts-key").focus(); return; }
+    api("POST", "/api/jobs/" + S.id + "/narration", { api_key: key })
+      .then(function () { S.recording = true; renderForm(); renderOutline(); pollRecording(); })
+      .catch(function (e) { $("ed-record-msg").textContent = e.message; });
+  }
+
+  function pollRecording() {
+    clearTimeout(S.voPoll);
+    api("GET", "/api/jobs/" + S.id).then(function (j) {
+      if (j.narr_status === "running") {
+        var m = $("ed-record-msg");
+        if (m && j.narr_total) m.textContent = "Recording screen " + Math.min(j.narr_done + 1, j.narr_total) + " of " + j.narr_total + "…";
+        status("Recording audio. You can keep reviewing; saving is paused until it finishes.");
+        S.voPoll = setTimeout(pollRecording, 1500);
+        return;
+      }
+      S.recording = false;
+      var warn = (j.narr_warnings || []).join(" ");
+      load().then(function () {
+        S.changed = true;
+        status(warn || ("Audio recorded for " + (j.narr_result || "all") + " screens. The preview and downloads include it."), warn ? "error" : "");
+      });
+    }).catch(function () { S.voPoll = setTimeout(pollRecording, 3000); });
+  }
+
   function courseForm() {
     var c = S.course, f = el("div");
     f.appendChild(el("h3", { text: "Course settings" }));
@@ -366,6 +464,7 @@
     pick.addEventListener("input", function () { hex.value = pick.value; S.brand = pick.value; touch(); });
     hex.addEventListener("input", function () { if (/^#[0-9a-f]{6}$/i.test(hex.value)) { pick.value = hex.value; S.brand = hex.value; touch(); } });
     f.appendChild(el("div", { class: "ed-field" }, [el("label", { class: "ed-label", for: "ed-c-brand", text: "Brand colour" }), el("div", { class: "colour" }, [pick, hex])]));
+    f.appendChild(voiceSection());
     return f;
   }
 
@@ -381,6 +480,7 @@
         scenario: "A situation with one best response.", summary: "A recap before the quiz.",
         mcq: "One question with a single correct answer." }[scr.type] }));
       TYPES[scr.type].fields.forEach(function (f) { box.appendChild(field(f, scr)); });
+      box.appendChild(narrationField(scr));
     }
     showErrors();
   }
@@ -407,16 +507,17 @@
   }
 
   function save() {
-    if (!S.dirty || problems().length) return;
+    if (!S.dirty || problems().length || S.recording) return;
     S.saving = true; $("ed-save").disabled = true; status("Saving and rebuilding the package…");
     var course = cleaned();
     api("PUT", "/api/jobs/" + S.id + "/course", { course: course, brand: S.brand })
       .then(function (j) {
-        S.saving = false; S.course = course; S.version = j.version; S.dirty = false; S.changed = true;
-        $("ed-revert").disabled = false;
+        S.saving = false; S.changed = true;
         if (typeof S.sel === "number" && S.sel >= course.screens.length) S.sel = course.screens.length - 1;
-        renderOutline(); renderForm(); $("ed-preview").src = previewSrc();
-        status("Saved. The preview and downloads now include your changes.");
+        return load().then(function () {
+          status("Saved. The preview and downloads now include your changes." +
+            (voMode() === "audio" && S.needsAudio ? " " + S.needsAudio + (S.needsAudio === 1 ? " screen needs" : " screens need") + " new audio: use Record audio." : ""));
+        });
       })
       .catch(function (e) {
         S.saving = false; renderOutline();
@@ -434,9 +535,13 @@
   }
 
   function load() {
+    if (!S.cfg) api("GET", "/api/config").then(function (c) { S.cfg = c; if (S.sel === "course") renderForm(); }).catch(function () {});
     api("GET", "/api/jobs/" + S.id + "/media").then(function (j) { S.media = j.images || []; }).catch(function () { S.media = []; });
     return api("GET", "/api/jobs/" + S.id + "/course").then(function (j) {
       S.course = j.course; S.brand = j.brand; S.version = j.version; S.dirty = false;
+      S.needsAudio = j.needs_audio || 0; S.ttsServerKey = !!j.tts_server_key;
+      if (j.recording && !S.recording) { S.recording = true; pollRecording(); }
+      S.course.screens.forEach(function (x) { savedNarr.set(x, x.narration || ""); });
       if (typeof S.course.mastery_score !== "number") S.course.mastery_score = 80;
       if (typeof S.course.est_minutes !== "number") S.course.est_minutes = Math.max(5, S.course.screens.length);
       $("ed-revert").disabled = !j.edited;
@@ -448,6 +553,7 @@
   function close() {
     if (S.dirty && !window.confirm("You have unsaved changes. Leave the editor and lose them?")) return;
     S.dirty = false;
+    clearTimeout(S.voPoll);
     document.body.classList.remove("editing");
     $("editor").classList.add("is-hidden");
     $("ed-preview").src = "about:blank";
@@ -461,6 +567,8 @@
       el("div", { class: "ed-bar" }, [
         el("h2", { text: "Edit course" }),
         el("p", { class: "ed-status", id: "ed-status", role: "status", "aria-live": "polite" }),
+        el("button", { type: "button", class: "btn is-hidden", id: "ed-audio", onclick: function () {
+          select("course"); var r = $("ed-vo"); if (r) { r.scrollIntoView({ behavior: "smooth", block: "center" }); var b = $("ed-tts-key") || $("ed-record"); if (b) b.focus(); } } }),
         el("button", { type: "button", class: "btn", id: "ed-revert", text: "Revert to AI draft", onclick: revert }),
         el("button", { type: "button", class: "btn primary", id: "ed-save", text: "Save and preview", onclick: save }),
         el("button", { type: "button", class: "btn", id: "ed-done", text: "Done", onclick: close })]),

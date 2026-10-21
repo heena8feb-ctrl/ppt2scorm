@@ -350,6 +350,7 @@
     var s = C.screens[state.i];
     stage.appendChild(state.i === RESULTS ? renderResults() : withImage(R[s.type](s), s));
     updateNav(); save();
+    if (window.Voice) Voice.show(state.i === RESULTS ? null : s);
     stage.focus({ preventScroll: true }); window.scrollTo(0, 0);
   }
 
@@ -366,6 +367,7 @@
   if (!st || st === "not attempted") SCORM.set("cmi.core.lesson_status", "incomplete");
   state.completed = st === "passed" || st === "completed";
   restore();
+  if (window.Voice) Voice.init(C);
   // Preview only (no LMS): "#screen=N" opens screen N, so an editor can show the screen just changed.
   var jump = !SCORM.connected && /(?:^#|&)screen=(\d+)/.exec(location.hash);
   if (jump) state.i = Math.min(parseInt(jump[1], 10), total - 1);

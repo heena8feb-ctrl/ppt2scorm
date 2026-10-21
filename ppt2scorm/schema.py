@@ -15,6 +15,10 @@ Screen types (field "type"):
   summary    title, points[str]
 Optional on intro, content, flipcards, reveal, scenario and mcq screens:
   image      {"src": "media/<file>", "alt": "what the image shows"}
+Optional on every screen:
+  narration  str: the voice-over script            audio  {"src": "media/narr_<hash>.mp3", "duration": seconds}
+Optional on the course:
+  voiceover  {"mode": "off" | "audio" | "device", "voice": "<Gemini voice name>"}
 Scored MCQs make up the final assessment; score = % correct, pass if >= mastery_score.
 """
 import re
@@ -37,6 +41,29 @@ class CourseError(ValueError):
 
 IMAGE_TYPES = {"intro", "content", "flipcards", "reveal", "scenario", "mcq"}
 IMAGE_SRC = re.compile(r"^media/[A-Za-z0-9_.-]{1,120}$")
+AUDIO_SRC = re.compile(r"^media/narr_[0-9a-f]{12}\.(mp3|wav)$")
+VOICEOVER_MODES = {"off", "audio", "device"}
+MAX_NARRATION = 1500
+
+
+def _check_audio(i, s):
+    if "narration" in s and (not isinstance(s["narration"], str) or len(s["narration"]) > MAX_NARRATION):
+        raise CourseError(f"screen {i}: narration must be text under {MAX_NARRATION} characters")
+    a = s.get("audio")
+    if a is None:
+        return
+    if not isinstance(a, dict) or not isinstance(a.get("src"), str) or not AUDIO_SRC.match(a["src"]):
+        raise CourseError(f"screen {i}: the narration audio file isn't valid")
+    if not isinstance(a.get("duration", 0), (int, float)) or isinstance(a.get("duration"), bool):
+        raise CourseError(f"screen {i}: the narration length isn't valid")
+
+
+def _check_voiceover(course):
+    vo = course.get("voiceover")
+    if vo is None:
+        return
+    if not isinstance(vo, dict) or vo.get("mode", "off") not in VOICEOVER_MODES or not isinstance(vo.get("voice", ""), str):
+        raise CourseError("the voice-over setting isn't valid")
 
 
 def _tidy_image(i, s, warnings):
@@ -111,6 +138,7 @@ def check_types(course):
     for k, lo, hi in (("mastery_score", 0, 100), ("est_minutes", 1, 600)):
         if k in course and (not isinstance(course[k], int) or isinstance(course[k], bool) or not lo <= course[k] <= hi):
             raise CourseError(f"{k.replace('_', ' ')} must be a whole number from {lo} to {hi}")
+    _check_voiceover(course)
     if len(course["screens"]) > 200:
         raise CourseError("a course can have at most 200 screens")
     for i, s in enumerate(course["screens"], 1):
@@ -138,6 +166,7 @@ def check_types(course):
             if k in TEXT_LISTS and any(not x.strip() for x in v):
                 raise CourseError(f"{where}: remove or fill in the empty line")
         _check_image(i, s)
+        _check_audio(i, s)
         if s.get("type") == "mcq" and not (isinstance(s.get("correct"), int) and not isinstance(s.get("correct"), bool)):
             raise CourseError(f"screen {i}: pick the correct answer")
     return validate(course)
@@ -172,6 +201,14 @@ def validate(course):
         if t == "match" and len(s["pairs"]) < 2:
             raise CourseError(f"screen {i}: match needs at least 2 pairs")
         _tidy_image(i, s, warnings)
+        if "narration" in s and not isinstance(s["narration"], str):
+            s.pop("narration")
+        elif isinstance(s.get("narration"), str):
+            s["narration"] = s["narration"].strip()[:MAX_NARRATION]
+        try:
+            _check_audio(i, s)
+        except CourseError:
+            s.pop("audio", None)
     if not any(s["type"] == "mcq" and s.get("scored", True) for s in course["screens"]):
         warnings.append("no scored questions: course will complete on viewing all screens (no score sent)")
     return warnings

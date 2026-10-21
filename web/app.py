@@ -24,7 +24,8 @@ from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
 from ppt2scorm.ai_redesign import PROVIDERS, detect_provider
-from ppt2scorm.pipeline import build_package, design_course, extract, screen_summary
+from ppt2scorm.pipeline import add_narration, build_package, design_course, extract, screen_summary
+from ppt2scorm.narration import DEFAULT_VOICE, VOICES, narrate_course, prune_stale
 from ppt2scorm.schema import CourseError, check_types, resolve_images
 from ppt2scorm.extract import _save_image
 
@@ -45,7 +46,7 @@ jobs = {}
 usage = {}  # (ip, day) -> count of AI conversions on the server's key
 lock = threading.Lock()
 
-STEPS = ["upload", "extract", "design", "package", "done"]
+STEPS = ["upload", "extract", "design", "narrate", "package", "done"]
 
 
 def _server_key(provider):
@@ -90,7 +91,7 @@ def _friendly(err):
     return msg[:300]
 
 
-def _run(jid, use_ai, provider, api_key, brand, instructions):
+def _run(jid, use_ai, provider, api_key, brand, instructions, narration="off", voice=None, tts_key=None):
     folder = JOBS_DIR / jid
     try:
         _update(jid, step="extract")
@@ -106,6 +107,11 @@ def _run(jid, use_ai, provider, api_key, brand, instructions):
         course, warnings, how = design_course(deck, use_ai=use_ai, provider=provider, api_key=api_key,
                                               instructions=instructions, log=lambda m: None)
         api_key = None  # not kept beyond this point
+        if narration == "audio":
+            _update(jid, step="narrate", narr_done=0, narr_total=0)
+        warnings = warnings + add_narration(course, folder / "media", mode=narration, voice=voice, api_key=tts_key,
+                                            progress=lambda k, n: _update(jid, narr_done=k, narr_total=n))
+        tts_key = None
         _update(jid, step="package")
         text = json.dumps(course, indent=2, ensure_ascii=False)
         (folder / "course.json").write_text(text, encoding="utf-8")
@@ -113,6 +119,7 @@ def _run(jid, use_ai, provider, api_key, brand, instructions):
         build_package(course, folder / "course.zip", media_dir=folder / "media", brand=brand,
                       keep_dir=folder / "package")
         _update(jid, step="done", status="done", how=how, warnings=warnings, title=course["title"], version=1,
+                voiceover=course.get("voiceover", {}).get("mode", "off"), needs_audio=prune_stale(course),
                 summary=screen_summary(course), screens=len(course["screens"]),
                 size_kb=(folder / "course.zip").stat().st_size // 1024)
     except Exception as e:  # noqa: BLE001 - every failure is reported to the user
@@ -132,13 +139,16 @@ def config():
         "default_provider": detect_provider() or "gemini",
         "max_mb": MAX_BYTES // (1024 * 1024),
         "daily_limit": DAILY_LIMIT,
+        "voices": [{"id": v, "label": f"{v} ({d.lower()})"} for v, d in VOICES.items()],
+        "default_voice": DEFAULT_VOICE,
+        "tts_server_key": _server_key("gemini"),
     }
 
 
 @app.post("/api/convert")
 async def convert(request: Request, file: UploadFile = File(...), mode: str = Form("ai"),
                   provider: str = Form("gemini"), api_key: str = Form(""), brand: str = Form(""),
-                  instructions: str = Form("")):
+                  instructions: str = Form(""), narration: str = Form("off"), voice: str = Form("")):
     _cleanup()
     if not (file.filename or "").lower().endswith(".pptx"):
         raise HTTPException(400, "Please upload a PowerPoint .pptx file. Older .ppt files must be saved as .pptx first.")
@@ -151,11 +161,22 @@ async def convert(request: Request, file: UploadFile = File(...), mode: str = Fo
     instructions = instructions.strip()[:600]
     api_key = api_key.strip()
 
+    if narration not in ("off", "audio", "device"):
+        raise HTTPException(400, "Unknown narration option.")
+    voice = voice if voice in VOICES else DEFAULT_VOICE
     use_ai = mode == "ai"
-    if use_ai and not api_key:
-        if not _server_key(provider):
-            raise HTTPException(400, f"No server key is set up for {PROVIDER_LABELS[provider]}. "
-                                     "Paste your own API key, or choose Basic mode.")
+    # AI voice uses Google's text-to-speech: the pasted key when the provider is Gemini, else the server's key.
+    tts_key = None
+    if narration == "audio":
+        tts_key = api_key if (provider == "gemini" and api_key) else os.environ.get(PROVIDERS["gemini"][0])
+        if not tts_key:
+            raise HTTPException(400, "AI voice needs a Google Gemini key. Choose Google Gemini as the provider and "
+                                     "paste your key, or choose Device voice.")
+    uses_server_key = (use_ai and not api_key) or (narration == "audio" and not (provider == "gemini" and api_key))
+    if use_ai and not api_key and not _server_key(provider):
+        raise HTTPException(400, f"No server key is set up for {PROVIDER_LABELS[provider]}. "
+                                 "Paste your own API key, or choose Basic mode.")
+    if uses_server_key:
         key = (_client_ip(request), time.strftime("%Y-%m-%d"))
         with lock:
             if usage.get(key, 0) >= DAILY_LIMIT:
@@ -180,7 +201,8 @@ async def convert(request: Request, file: UploadFile = File(...), mode: str = Fo
         jobs[jid] = {"id": jid, "status": "running", "step": "upload", "created": time.time(),
                      "filename": Path(file.filename).name, "mode": mode, "brand": brand or None,
                      "provider": PROVIDER_LABELS[provider] if use_ai else None}
-    pool.submit(_run, jid, use_ai, provider if use_ai else None, api_key or None, brand or None, instructions)
+    pool.submit(_run, jid, use_ai, provider if use_ai else None, api_key or None, brand or None, instructions,
+                narration, voice, tts_key)
     return {"job_id": jid}
 
 
@@ -264,6 +286,10 @@ def _rebuild(jid, course, brand):
     try:
         warnings = check_types(course)
         warnings += resolve_images(course, {m["src"]: m for m in _media(jid)})
+        vo = course.get("voiceover") or {}
+        if vo.get("voice") and vo["voice"] not in VOICES:
+            raise CourseError("pick a voice from the list")
+        needs_audio = prune_stale(course)
     except CourseError as e:
         raise HTTPException(422, str(e)[:1].upper() + str(e)[1:] + ".")
     with _edit_lock(jid):
@@ -282,7 +308,8 @@ def _rebuild(jid, course, brand):
             j = jobs[jid]
             j.update(title=course["title"], warnings=warnings, summary=screen_summary(course),
                      screens=len(course["screens"]), size_kb=(folder / "course.zip").stat().st_size // 1024,
-                     brand=brand, version=j.get("version", 1) + 1)
+                     brand=brand, version=j.get("version", 1) + 1, needs_audio=needs_audio,
+                     voiceover=(course.get("voiceover") or {}).get("mode", "off"))
             return dict(j)
 
 
@@ -292,7 +319,9 @@ def get_course(jid: str):
     folder = JOBS_DIR / jid
     course = json.loads((folder / "course.json").read_text(encoding="utf-8"))
     edited = (folder / "course.json").read_bytes() != (folder / "course.draft.json").read_bytes()
-    return {"course": course, "brand": j.get("brand") or "#1f5eff", "edited": edited, "version": j.get("version", 1)}
+    return {"course": course, "brand": j.get("brand") or "#1f5eff", "edited": edited, "version": j.get("version", 1),
+            "needs_audio": prune_stale(json.loads(json.dumps(course))), "recording": j.get("narr_status") == "running",
+            "tts_server_key": _server_key("gemini")}
 
 
 @app.put("/api/jobs/{jid}/course")
@@ -310,7 +339,7 @@ async def save_course(jid: str, request: Request):
         raise HTTPException(422, "Brand colour must look like #1f5eff.")
     j = _rebuild(jid, body.get("course"), brand)
     return {"version": j["version"], "title": j["title"], "screens": j["screens"], "summary": j["summary"],
-            "size_kb": j["size_kb"], "warnings": j["warnings"], "edited": True}
+            "size_kb": j["size_kb"], "warnings": j["warnings"], "edited": True, "needs_audio": j["needs_audio"]}
 
 
 @app.post("/api/jobs/{jid}/revert")
@@ -319,7 +348,45 @@ def revert_course(jid: str):
     draft = json.loads((JOBS_DIR / jid / "course.draft.json").read_text(encoding="utf-8"))
     j = _rebuild(jid, draft, j.get("brand"))
     return {"version": j["version"], "title": j["title"], "screens": j["screens"], "summary": j["summary"],
-            "size_kb": j["size_kb"], "warnings": j["warnings"], "edited": False}
+            "size_kb": j["size_kb"], "warnings": j["warnings"], "edited": False, "needs_audio": j["needs_audio"]}
+
+
+def _record(jid, tts_key):
+    try:
+        course = json.loads((JOBS_DIR / jid / "course.json").read_text(encoding="utf-8"))
+        done, total, warnings = narrate_course(course, JOBS_DIR / jid / "media", tts_key,
+                                               progress=lambda k, n: _update(jid, narr_done=k, narr_total=n))
+        tts_key = None
+        j = _rebuild(jid, course, _job(jid).get("brand"))
+        _update(jid, narr_status="done", narr_warnings=warnings, narr_result=f"{done} of {total}")
+        del j
+    except Exception as e:  # noqa: BLE001
+        _update(jid, narr_status="error", narr_warnings=[_friendly(getattr(e, "detail", e))])
+
+
+@app.post("/api/jobs/{jid}/narration")
+async def record_narration(jid: str, request: Request):
+    """Record audio for every screen whose script has no matching audio yet (runs in the background)."""
+    j = _ready(jid)
+    if j.get("narr_status") == "running":
+        raise HTTPException(409, "Audio is already being recorded.")
+    try:
+        body = await request.json()
+    except ValueError:
+        body = {}
+    key = (body.get("api_key") or "").strip() if isinstance(body, dict) else ""
+    if not key:
+        key = os.environ.get(PROVIDERS["gemini"][0])
+        if not key:
+            raise HTTPException(400, "Paste a Google Gemini API key to record audio.")
+        quota = (_client_ip(request), time.strftime("%Y-%m-%d"))
+        with lock:
+            if usage.get(quota, 0) >= DAILY_LIMIT:
+                raise HTTPException(429, f"You've used today's {DAILY_LIMIT} free AI runs. Paste your own Gemini key to continue.")
+            usage[quota] = usage.get(quota, 0) + 1
+    _update(jid, narr_status="running", narr_done=0, narr_total=0, narr_warnings=[])
+    pool.submit(_record, jid, key)
+    return {"recording": True}
 
 
 MEDIA_NAME = re.compile(r"[A-Za-z0-9_.-]{1,120}")

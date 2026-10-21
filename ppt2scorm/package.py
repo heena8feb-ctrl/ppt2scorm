@@ -51,23 +51,26 @@ def build_package(course, out_zip, media_dir=None, brand=None, keep_dir=None):
         shutil.rmtree(build)
     build.mkdir(parents=True)
 
-    for name in ("index.html", "player.css", "player.js", "scorm.js"):
+    for name in ("index.html", "player.css", "player.js", "voice.js", "scorm.js"):
         shutil.copy(PLAYER_DIR / name, build / name)
     if brand:
         course.setdefault("theme", {})["brand"] = brand
-    # copy only the images the course uses; drop references to files that are missing
+    # copy only the images and narration audio the course uses; drop references to files that are missing
+    use_audio = (course.get("voiceover") or {}).get("mode") == "audio"
     for scr in course["screens"]:
-        img = scr.get("image")
-        if not img:
-            continue
-        src = Path(media_dir or "", Path(img["src"]).name) if media_dir else None
-        if src is None or not src.is_file():
-            scr.pop("image")
-            continue
-        (build / "media").mkdir(exist_ok=True)
-        shutil.copy(src, build / "media" / src.name)
+        for key in ("image", "audio"):
+            ref = scr.get(key)
+            if not ref or (key == "audio" and not use_audio):
+                continue  # recordings are kept on the course but only packaged when the AI voice is switched on
+            src = Path(media_dir, Path(ref["src"]).name) if media_dir else None
+            if src is None or not src.is_file():
+                scr.pop(key)
+                continue
+            (build / "media").mkdir(exist_ok=True)
+            shutil.copy(src, build / "media" / src.name)
     # Embed the course as JS (not fetched JSON) so it works from file:// and inside any LMS frame.
-    payload = json.dumps(course, ensure_ascii=False, indent=1).replace("</", "<\\/")
+    shipped = course if use_audio else dict(course, screens=[{k: v for k, v in sc.items() if k != "audio"} for sc in course["screens"]])
+    payload = json.dumps(shipped, ensure_ascii=False, indent=1).replace("</", "<\\/")
     (build / "course.js").write_text("window.COURSE = " + payload + ";\n", encoding="utf-8")
 
     files = sorted(p.relative_to(build).as_posix() for p in build.rglob("*") if p.is_file())

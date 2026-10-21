@@ -124,6 +124,15 @@ Images:
   cause 50% of drain complaints"), in one sentence. Don't start with "Image of".
 - If an image is decorative or unclear, leave it out.
 
+Narration:
+- Give EVERY screen a "narration" field: what a friendly trainer would say on that screen, 1 to 3 short
+  sentences (at most 45 words), written to be spoken aloud.
+- Don't just read the screen out. Add the context or reason from the speaker notes, and guide the learner
+  ("Flip each card to check your guess.").
+- On scenario and mcq screens, set up the situation or read the question, but never hint at the answer
+  or read the options.
+- Plain words, no abbreviations a voice would stumble on, no emoji, no stage directions.
+
 Output ONLY a JSON object, no markdown fences, matching this schema:
 {
  "title": str, "description": str (1 sentence), "est_minutes": int, "mastery_score": 80,
@@ -138,7 +147,7 @@ Output ONLY a JSON object, no markdown fences, matching this schema:
   {"type":"mcq","question":str,"options":[str],"correct":int,"explanation":str,"scored":true}
  ]
 }
-(bullets and callout are optional on content screens; "image" is optional on intro, content,
+("narration": str goes on every screen. bullets and callout are optional on content screens; "image" is optional on intro, content,
 flipcards, reveal, scenario and mcq screens.)"""
 
 
@@ -203,6 +212,8 @@ def heuristic_course(deck, seed=7):
                       "body": s["notes"] or " ".join(bullets) or f"Take a close look at this {what}.", "bullets": bullets}
         if images:
             screen["image"] = {"src": images[0]["src"], "alt": images[0].get("alt") or title}
+        if s["notes"]:
+            screen["narration"] = s["notes"][:1500]
         screens.append(screen)
     screens.append({"type": "summary", "title": "Key takeaways",
                     "points": [s["title"] for s in slides[1:] if s["title"]][:6]})

@@ -1,0 +1,205 @@
+"""End-to-end test of narration with a mock Gemini text-to-speech server (no real API key needed).
+Run from the project root:  python tests/test_narration.py [screenshot_dir]"""
+import base64
+import io
+import json
+import math
+import os
+import struct
+import sys
+import tempfile
+import threading
+import time
+import wave
+import zipfile
+import http.server
+from pathlib import Path
+
+ROOT = Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(ROOT))
+SHOTS = Path(sys.argv[1]) if len(sys.argv) > 1 else None
+DECK = ROOT / "samples/data_privacy_essentials.pptx"
+os.environ["GEMINI_API_KEY"] = "server-test-key"   # the server has a key, so AI voice works without pasting one
+TTS = {"calls": [], "fail": None}
+
+
+def wav(text):
+    rate, n = 24000, int(24000 * min(4.0, 0.8 + len(text) / 60))
+    b = io.BytesIO()
+    with wave.open(b, "wb") as w:
+        w.setnchannels(1); w.setsampwidth(2); w.setframerate(rate)
+        w.writeframes(b"".join(struct.pack("<h", int(4000 * math.sin(i / 9))) for i in range(n)))
+    return b.getvalue()
+
+
+class MockTTS(http.server.BaseHTTPRequestHandler):
+    def log_message(self, *a): pass
+
+    def do_POST(self):
+        body = json.loads(self.rfile.read(int(self.headers["Content-Length"])))
+        text = body["input"][0]["content"][0]["text"]
+        TTS["calls"].append((body["model"], body["generation_config"]["speech_config"][0]["voice"], text,
+                             self.headers.get("x-goog-api-key")))
+        if TTS["fail"]:
+            out, code = json.dumps({"error": {"code": TTS["fail"], "message": "API key not valid"}}).encode(), TTS["fail"]
+        else:
+            out = json.dumps({"id": "i", "steps": [{"type": "model_output", "content": [
+                {"type": "audio", "mime_type": "audio/wav", "data": base64.b64encode(wav(text)).decode()}]}]}).encode()
+            code = 200
+        self.send_response(code)
+        self.send_header("Content-Type", "application/json")
+        self.send_header("Content-Length", str(len(out)))
+        self.end_headers()
+        self.wfile.write(out)
+
+
+def main():
+    tts = http.server.ThreadingHTTPServer(("127.0.0.1", 0), MockTTS)
+    threading.Thread(target=tts.serve_forever, daemon=True).start()
+    from ppt2scorm import narration
+    narration.TTS_URL = f"http://127.0.0.1:{tts.server_address[1]}/v1beta/interactions"
+    narration.TTS_WAITS = [0, 0, 0]
+
+    import uvicorn
+    from playwright.sync_api import sync_playwright
+    from web.app import app
+    server = uvicorn.Server(uvicorn.Config(app, host="127.0.0.1", port=8768, log_level="warning"))
+    threading.Thread(target=server.run, daemon=True).start()
+    while not server.started:
+        time.sleep(0.1)
+    base = "http://127.0.0.1:8768"
+    r = {}
+
+    with sync_playwright() as p:
+        b = p.chromium.launch(args=["--autoplay-policy=user-gesture-required"])
+        page = b.new_page(viewport={"width": 1480, "height": 940})
+        errors = []
+        page.on("pageerror", lambda e: errors.append(str(e)))
+        page.on("dialog", lambda d: d.accept())
+        page.goto(base)
+        page.wait_for_selector("#voice option", state="attached")
+
+        def convert(narr, voice=None):
+            page.set_input_files("#file", str(DECK))
+            page.check("input[name=mode][value=basic]", force=True)
+            page.check(f"input[name=narration][value={narr}]", force=True)
+            if voice:
+                page.select_option("#voice", voice)
+            page.click("#convert")
+            if narr == "audio":
+                page.wait_for_selector("#step-narrate.now, #actions-done:not(.is-hidden)", timeout=60000)
+            page.wait_for_selector("#actions-done:not(.is-hidden), .frame[data-state=error]", timeout=90000)
+            if page.get_attribute("#frame", "data-state") == "error":
+                raise AssertionError("conversion failed: " + page.text_content("#error-text"))
+            return page.evaluate("document.getElementById('dl-zip').getAttribute('href').split('/')[3]")
+
+        get = lambda path: page.evaluate("p => fetch(p).then(r => r.json())", path)
+
+        def zip_of(job):
+            data = page.evaluate("""id => fetch('/api/jobs/' + id + '/download').then(r => r.arrayBuffer())
+                                    .then(b => Array.from(new Uint8Array(b)))""", job)
+            return zipfile.ZipFile(io.BytesIO(bytes(data)))
+
+        # --- 1. Basic + AI voice: every screen narrated, recorded once, packaged ---
+        assert page.is_visible("#voice-field") is False
+        page.check("input[name=narration][value=audio]", force=True)
+        assert page.is_visible("#voice-field")
+        if SHOTS: page.screenshot(path=str(SHOTS / "nar_1_settings.png"))
+        job = convert("audio", "Sulafat")
+        course = get(f"/api/jobs/{job}/course")["course"]
+        screens = course["screens"]
+        assert course["voiceover"] == {"mode": "audio", "voice": "Sulafat"}, course["voiceover"]
+        assert all(s.get("narration") for s in screens), "every screen gets a script"
+        assert all(s.get("audio", {}).get("src", "").endswith(".mp3") for s in screens), "MP3 for every screen"
+        assert {c[1] for c in TTS["calls"]} == {"Sulafat"} and {c[3] for c in TTS["calls"]} == {"server-test-key"}
+        z = zip_of(job)
+        mp3 = [n for n in z.namelist() if n.startswith("media/narr_")]
+        assert len(mp3) == len({s["audio"]["src"] for s in screens}) and all(f'"{n}"' in z.read("imsmanifest.xml").decode().replace("href=", "")
+                                                                            for n in mp3[:1])
+        assert "voice.js" in z.namelist()
+        notes = next(s for s in screens if s["type"] == "content" or s["type"] == "reveal")
+        r["convert"] = f"{len(screens)} screens narrated, {len(TTS['calls'])} TTS calls, {len(mp3)} MP3s in the zip ({sum(z.getinfo(n).file_size for n in mp3)//1024} KB)"
+
+        # --- 2. Player: no sound before a click, auto-plays after Next, pause, captions ---
+        frame = page.frame_locator("#preview")
+        frame.locator(".vo").wait_for()
+        assert frame.locator(".vo-play").get_attribute("aria-pressed") == "false"
+        frame.locator("#btn-next").click()
+        frame.locator(".vo.is-playing").wait_for(timeout=5000)
+        frame.locator(".vo-toggle", has_text="Captions").click()
+        cap = frame.locator(".vo-captions").text_content()
+        assert cap == screens[1]["narration"], (cap, screens[1]["narration"])
+        if SHOTS: page.wait_for_timeout(700); page.screenshot(path=str(SHOTS / "nar_2_player.png"))
+        frame.locator(".vo-play").click()
+        frame.locator(".vo-play[aria-pressed=false]").wait_for(timeout=2000)
+        frame.locator(".vo-toggle", has_text="Auto-play").click()
+        for btn in frame.locator(".reveal-item button, .flip").all():   # finish the activity so Next unlocks
+            btn.click()
+        frame.locator("#btn-next").click()
+        page.wait_for_timeout(600)
+        assert frame.locator(".vo-play").get_attribute("aria-pressed") == "false", "auto-play off is respected"
+        r["player"] = "silent until a click, auto-plays after Next, pause, captions match script, auto-play off respected"
+
+        # --- 3. Editor: edit one script -> only that screen re-recorded ---
+        page.click("#edit")
+        page.wait_for_selector("#editor:not(.is-hidden) .ed-item")
+        page.locator(".ed-pick").nth(1).click()
+        page.fill("#ed-f-narration", "Here's why privacy matters to every one of us.")
+        assert "need new audio" in page.text_content(".ed-narr-status")
+        page.keyboard.press("Control+s")
+        page.wait_for_function("document.getElementById('ed-status').textContent.startsWith('Saved')", timeout=15000)
+        assert "1 screen needs new audio" in page.text_content("#ed-status")
+        assert page.text_content("#ed-audio") == "Record audio (1)"
+        page.click("#ed-audio")
+        assert page.is_visible("#ed-record") and not page.is_visible("#ed-tts-key"), "server key: no key field"
+        before = len(TTS["calls"])
+        page.click("#ed-record")
+        page.wait_for_function("document.getElementById('ed-status').textContent.startsWith('Audio recorded')", timeout=30000)
+        assert len(TTS["calls"]) == before + 1 and TTS["calls"][-1][2].startswith("Here's why"), TTS["calls"][-1]
+        c2 = get(f"/api/jobs/{job}/course")
+        assert c2["needs_audio"] == 0 and c2["course"]["screens"][1]["audio"]["src"] != screens[1]["audio"]["src"]
+        page.locator(".ed-pick").nth(1).click()
+        assert page.locator(".ed-narr-status audio").count() == 1
+        if SHOTS: page.screenshot(path=str(SHOTS / "nar_3_editor.png"))
+        r["re_record"] = "edited script flagged, 1 call to re-record, others reused"
+
+        # --- 4. Change voice -> every screen needs audio; device mode packages no MP3s ---
+        page.click("#ed-course")
+        page.select_option("#ed-c-voice", "Kore")
+        page.click("#ed-save")
+        page.wait_for_function("document.getElementById('ed-status').textContent.startsWith('Saved')", timeout=15000)
+        assert get(f"/api/jobs/{job}/course")["needs_audio"] == len(screens)
+        page.select_option("#ed-c-vomode", "device")
+        page.click("#ed-save")
+        page.wait_for_function("document.getElementById('ed-status').textContent.startsWith('Saved')", timeout=15000)
+        z = zip_of(job)
+        assert not [n for n in z.namelist() if n.startswith("media/narr_")], "device mode ships no recordings"
+        assert '"mode": "device"' in z.read("course.js").decode()
+        r["voice_and_device"] = "voice change flags all screens; device mode ships no MP3s"
+        page.click("#ed-done")
+
+        # --- 5. Key rejected by the voice service: course still made, falls back to device voice ---
+        TTS["fail"] = 401
+        page.click("#again")
+        job2 = convert("audio")
+        st = get(f"/api/jobs/{job2}")
+        assert st["voiceover"] == "device" and any("rejected" in w for w in st["warnings"]), st["warnings"]
+        TTS["fail"] = None
+        r["key_rejected"] = st["warnings"][-1][:90]
+
+        # --- 6. Device voice option ---
+        page.click("#again")
+        job3 = convert("device")
+        assert get(f"/api/jobs/{job3}/course")["course"]["voiceover"]["mode"] == "device"
+        page.frame_locator("#preview").locator(".vo").wait_for()
+
+        assert not errors, errors
+        b.close()
+    server.should_exit = True
+    tts.shutdown()
+    print(json.dumps(r, indent=1))
+    print("ALL NARRATION CHECKS PASSED")
+
+
+if __name__ == "__main__":
+    main()

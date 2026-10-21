@@ -6,16 +6,19 @@ Usage:
   python -m ppt2scorm.cli deck.pptx --course-json c.json   # use a reviewed/edited course JSON
   python -m ppt2scorm.cli deck.pptx --draft-only           # stop after AI step so a human can review the JSON
   python -m ppt2scorm.cli deck.pptx --no-ai                # basic conversion without AI
+  python -m ppt2scorm.cli deck.pptx --narrate             # add an AI voice-over (needs GEMINI_API_KEY)
 Options: --out course.zip  --brand "#e4002b"  --provider claude|gemini|openrouter|glm|qwen  --model <id>  --preview-dir ./preview
 """
 import argparse
 import json
+import os
 import sys
 import tempfile
 from pathlib import Path
 
 from .ai_redesign import PROVIDERS
-from .pipeline import build_package, design_course, extract, screen_summary
+from .narration import DEFAULT_VOICE, VOICES
+from .pipeline import add_narration, build_package, design_course, extract, screen_summary
 from .schema import validate
 
 
@@ -30,6 +33,9 @@ def main(argv=None):
     ap.add_argument("--provider", choices=list(PROVIDERS), help="LLM provider (default: first one with an API key set)")
     ap.add_argument("--model", help="model ID (default depends on provider)")
     ap.add_argument("--instructions", default="", help="extra guidance for the AI, e.g. audience or tone")
+    ap.add_argument("--narrate", action="store_true", help="record an AI voice-over for every screen (Gemini text-to-speech)")
+    ap.add_argument("--device-voice", action="store_true", help="no recording: the learner's device reads each screen aloud")
+    ap.add_argument("--voice", default=DEFAULT_VOICE, choices=list(VOICES), help="Gemini voice for --narrate")
     ap.add_argument("--preview-dir", help="also keep the unzipped package here for previewing in a browser")
     a = ap.parse_args(argv)
 
@@ -59,6 +65,15 @@ def main(argv=None):
         print(f"    Draft saved to {draft}. Review/edit it, then rerun with:")
         print(f"    python -m ppt2scorm.cli {a.pptx} --course-json {draft}")
         return 0
+
+    if a.narrate or a.device_voice:
+        mode = "audio" if a.narrate else "device"
+        if mode == "audio":
+            print("    recording narration with Gemini text-to-speech ...")
+        for w in add_narration(course, media, mode=mode, voice=a.voice, api_key=os.environ.get(PROVIDERS["gemini"][0]),
+                               progress=lambda k, n: print(f"\r    screen {min(k + 1, n)} of {n}", end="", flush=True) if n else None):
+            print("\n    warning:", w)
+        print()
 
     print("3/3 Packaging SCORM 1.2 ...")
     build_package(course, out, media_dir=media, brand=a.brand, keep_dir=a.preview_dir)

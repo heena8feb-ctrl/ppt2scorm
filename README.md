@@ -77,6 +77,25 @@ Photos, diagrams and charts from the deck come through into the course:
 
 Try it with `samples/visuals_test.pptx`, which has a photo, a chart, a shape diagram and a logo on every slide.
 
+### Narration
+
+Every screen can have a voice-over, with captions and play/pause controls:
+
+- The AI writes a short spoken script for each screen: one to three sentences that add context from the
+  speaker notes without giving away quiz answers. Basic mode uses the speaker notes.
+- **AI voice** records each script with Google Gemini text-to-speech. Ten voices are available, and the MP3s
+  add about 15 KB per screen. **Device voice** records nothing: the learner's computer reads the script aloud.
+- In the course, narration starts once the learner clicks Next, as browsers allow. Learners can pause,
+  replay, turn captions on and switch auto-play off. Their choices are remembered.
+- In the editor, every screen has a **Narration script** field. Editing a script, or changing the voice, flags
+  just those screens. **Record audio** re-records only what changed.
+- If Google's voice service is busy or a free limit runs out, the course is still made. Screens without
+  audio use the device voice until you record them.
+
+Turn it on with **Narration** in the web app, or `--narrate` (AI voice) or `--device-voice` on the command line.
+AI voice needs a Gemini API key. MP3 encoding uses `lameenc`, installed by `requirements.txt`, or `ffmpeg`;
+without either, WAV files are used, which are about 6x larger.
+
 ## Quick start (command line, Windows)
 
 1. Install Python 3.10 or newer from python.org and tick **Add Python to PATH**.
@@ -165,13 +184,12 @@ Learners must complete each interaction before **Next** unlocks. If they fail th
 
 ## Testing before you roll out
 
-1. Build the sample with `python -m ppt2scorm.cli samples/data_privacy_essentials.pptx --course-json samples/data_privacy_essentials.course.json --preview-dir out/preview --out out/sample.zip`, then run `python tests/test_playthrough.py`, `python tests/test_web.py`, `python tests/test_editor.py`, `python tests/test_visuals.py` and `python tests/test_retry.py` (requires `pip install -r requirements-dev.txt && playwright install chromium`).
+1. Build the sample with `python -m ppt2scorm.cli samples/data_privacy_essentials.pptx --course-json samples/data_privacy_essentials.course.json --preview-dir out/preview --out out/sample.zip`, then run `python tests/test_playthrough.py`, `python tests/test_web.py`, `python tests/test_editor.py`, `python tests/test_visuals.py`, `python tests/test_retry.py` and `python tests/test_narration.py` (requires `pip install -r requirements-dev.txt && playwright install chromium`).
 2. Upload the zip to **SCORM Cloud** (Rustici's free account). It is the standard compatibility check.
 3. Upload to your own LMS's test instance and do one full pass and one deliberate fail.
 
 ## Roadmap ideas
 
-- Narration: generate audio from the narration script with a TTS API and add an audio element to each screen.
 - SCORM 2004 and xAPI/cmi5 output, and `cmi.interactions` for per-question LMS reports.
 - Include the SCORM 1.2 XSD files in the zip for the strictest LMS validators.
 
