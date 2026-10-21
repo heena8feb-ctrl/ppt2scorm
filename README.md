@@ -165,7 +165,7 @@ Learners must complete each interaction before **Next** unlocks. If they fail th
 
 ## Testing before you roll out
 
-1. Build the sample with `python -m ppt2scorm.cli samples/data_privacy_essentials.pptx --course-json samples/data_privacy_essentials.course.json --preview-dir out/preview --out out/sample.zip`, then run `python tests/test_playthrough.py`, `python tests/test_web.py`, `python tests/test_editor.py` and `python tests/test_visuals.py` (requires `pip install -r requirements-dev.txt && playwright install chromium`).
+1. Build the sample with `python -m ppt2scorm.cli samples/data_privacy_essentials.pptx --course-json samples/data_privacy_essentials.course.json --preview-dir out/preview --out out/sample.zip`, then run `python tests/test_playthrough.py`, `python tests/test_web.py`, `python tests/test_editor.py`, `python tests/test_visuals.py` and `python tests/test_retry.py` (requires `pip install -r requirements-dev.txt && playwright install chromium`).
 2. Upload the zip to **SCORM Cloud** (Rustici's free account). It is the standard compatibility check.
 3. Upload to your own LMS's test instance and do one full pass and one deliberate fail.
 

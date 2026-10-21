@@ -78,6 +78,9 @@ def _friendly(err):
     low = msg.lower()
     if "401" in msg or "api key" in low or "unauthorized" in low or "permission" in low:
         return "The AI provider rejected the API key. Check the key and try again."
+    if "503" in msg or "high demand" in low or "unavailable" in low or "overloaded" in low or "529" in msg:
+        return ("The AI provider's servers are busy right now. This is on their side, not yours, and usually "
+                "clears within a few minutes. Try again shortly, choose Basic mode, or pick another provider.")
     if "429" in msg or "quota" in low or "rate" in low:
         return "The AI provider's rate limit or free quota was reached. Wait a while, use your own key, or choose Basic mode."
     if "not found" in low and "model" in low:

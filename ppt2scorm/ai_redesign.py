@@ -20,6 +20,21 @@ PROVIDERS = {
 }
 
 
+# Lighter models to try when the default one is overloaded (each has its own free quota on Gemini).
+FALLBACK_MODELS = {"gemini": ["gemini-3.5-flash-lite"]}
+TRANSIENT_STATUS = {408, 429, 500, 502, 503, 504, 529}
+RETRY_WAITS = [3, 8]  # seconds between attempts on the same model
+
+
+def _is_transient(err):
+    """Overloaded, rate limited or a network blip: worth retrying. Bad keys or unknown models are not."""
+    status = getattr(err, "status_code", None) or getattr(getattr(err, "response", None), "status_code", None)
+    if status in TRANSIENT_STATUS:
+        return True
+    name = err.__class__.__name__
+    return name in ("APIConnectionError", "APITimeoutError", "InternalServerError", "RateLimitError", "OverloadedError")
+
+
 def detect_provider():
     """First provider whose API key is set in the environment, or None."""
     for name, (env, _, _) in PROVIDERS.items():
@@ -39,21 +54,47 @@ def _make_caller(provider, model, api_key=None):
     model = model or default_model
     if not model:
         raise CourseError(f"provider '{provider}' needs --model")
+    # The SDKs' own retries are switched off so this module controls waiting and model fallback.
     if base_url is None:
         import anthropic
-        client = anthropic.Anthropic(api_key=key)
+        client = anthropic.Anthropic(api_key=key, max_retries=0)
 
-        def call(messages):
-            r = client.messages.create(model=model, max_tokens=16000, system=SYSTEM_PROMPT, messages=messages)
+        def call_once(messages, m):
+            r = client.messages.create(model=m, max_tokens=16000, system=SYSTEM_PROMPT, messages=messages)
             return "".join(b.text for b in r.content if b.type == "text")
     else:
         from openai import OpenAI
-        client = OpenAI(api_key=key, base_url=base_url)
+        client = OpenAI(api_key=key, base_url=base_url, max_retries=0)
 
-        def call(messages):
-            r = client.chat.completions.create(model=model, max_tokens=16000,
+        def call_once(messages, m):
+            r = client.chat.completions.create(model=m, max_tokens=16000,
                                                messages=[{"role": "system", "content": SYSTEM_PROMPT}] + messages)
             return r.choices[0].message.content or ""
+
+    import time
+    chain = [model] + [f for f in FALLBACK_MODELS.get(provider, []) if f != model]
+    state = {"model": model}
+
+    def call(messages):
+        """Retry busy/rate-limited calls, then move to a lighter model. Remembers the model that worked."""
+        first_busy = None
+        for m in chain[chain.index(state["model"]):]:
+            for attempt in range(len(RETRY_WAITS) + 1):
+                try:
+                    text = call_once(messages, m)
+                    state["model"] = m
+                    return text
+                except Exception as e:  # noqa: BLE001 - classified below
+                    if not _is_transient(e):
+                        if first_busy is not None:   # a fallback model failed for another reason (e.g. renamed):
+                            raise first_busy          # report the original "busy" problem, which is the real one
+                        raise
+                    first_busy = first_busy or e
+                    if attempt < len(RETRY_WAITS):
+                        time.sleep(RETRY_WAITS[attempt])
+        raise first_busy
+
+    call.state = state
     return call, model
 
 SYSTEM_PROMPT = """You are a senior instructional designer. You turn slide decks into short,
@@ -120,6 +161,9 @@ def ai_course(deck_text, model=None, extra_instructions="", max_retries=2, provi
         try:
             course = _parse_json(text)
             warnings = validate(course)
+            used = getattr(call, "state", {}).get("model", model)
+            if used != model:
+                warnings.insert(0, f"{model} was busy, so {used} wrote this course. Review it closely.")
             return course, warnings
         except (ValueError, CourseError) as e:  # json errors are ValueErrors
             last_err = e
