@@ -140,43 +140,85 @@ def main():
         assert frame.locator(".vo-play").get_attribute("aria-pressed") == "false", "auto-play off is respected"
         r["player"] = "silent until a click, auto-plays after Next, pause, captions match script, auto-play off respected"
 
-        # --- 3. Editor: edit one script -> only that screen re-recorded ---
+        # --- 3. Editor: edit one script -> saved, then re-recorded automatically in the voice chosen at upload ---
         page.click("#edit")
         page.wait_for_selector("#editor:not(.is-hidden) .ed-item")
         page.locator(".ed-pick").nth(1).click()
         page.fill("#ed-f-narration", "Here's why privacy matters to every one of us.")
-        assert "need new audio" in page.text_content(".ed-narr-status")
-        page.keyboard.press("Control+s")
-        page.wait_for_function("document.getElementById('ed-status').textContent.startsWith('Saved')", timeout=15000)
-        assert "1 screen needs new audio" in page.text_content("#ed-status")
-        assert page.text_content("#ed-audio") == "Record audio (1)"
-        page.click("#ed-audio")
-        assert page.is_visible("#ed-record") and not page.is_visible("#ed-tts-key"), "server key: no key field"
+        assert "recorded in Sulafat" in page.text_content(".ed-narr-status"), page.text_content(".ed-narr-status")
         before = len(TTS["calls"])
-        page.click("#ed-record")
+        page.click("#ed-save")
         page.wait_for_function("document.getElementById('ed-status').textContent.startsWith('Audio recorded')", timeout=30000)
-        assert len(TTS["calls"]) == before + 1 and TTS["calls"][-1][2].startswith("Here's why"), TTS["calls"][-1]
+        assert "in Sulafat" in page.text_content("#ed-status"), page.text_content("#ed-status")
+        new_calls = TTS["calls"][before:]
+        assert len(new_calls) == 1 and new_calls[0][1] == "Sulafat" and new_calls[0][2].startswith("Here's why"), new_calls
         c2 = get(f"/api/jobs/{job}/course")
         assert c2["needs_audio"] == 0 and c2["course"]["screens"][1]["audio"]["src"] != screens[1]["audio"]["src"]
         page.locator(".ed-pick").nth(1).click()
         assert page.locator(".ed-narr-status audio").count() == 1
         if SHOTS: page.screenshot(path=str(SHOTS / "nar_3_editor.png"))
-        r["re_record"] = "edited script flagged, 1 call to re-record, others reused"
+        r["re_record"] = "edited script re-recorded automatically on save, in Sulafat (the voice chosen at upload); others reused"
 
-        # --- 4. Change voice -> every screen needs audio; device mode packages no MP3s ---
+        # --- 4. Change voice -> everything re-recorded in the new voice; device mode packages no MP3s ---
         page.click("#ed-course")
         page.select_option("#ed-c-voice", "Kore")
+        before = len(TTS["calls"])
         page.click("#ed-save")
-        page.wait_for_function("document.getElementById('ed-status').textContent.startsWith('Saved')", timeout=15000)
-        assert get(f"/api/jobs/{job}/course")["needs_audio"] == len(screens)
+        page.wait_for_function("document.getElementById('ed-status').textContent.startsWith('Audio recorded')", timeout=60000)
+        voices = {c[1] for c in TTS["calls"][before:]}
+        assert voices == {"Kore"} and len(TTS["calls"][before:]) == len(screens), (voices, len(TTS["calls"][before:]))
+        assert get(f"/api/jobs/{job}/course")["needs_audio"] == 0
         page.select_option("#ed-c-vomode", "device")
         page.click("#ed-save")
         page.wait_for_function("document.getElementById('ed-status').textContent.startsWith('Saved')", timeout=15000)
         z = zip_of(job)
         assert not [n for n in z.namelist() if n.startswith("media/narr_")], "device mode ships no recordings"
         assert '"mode": "device"' in z.read("course.js").decode()
-        r["voice_and_device"] = "voice change flags all screens; device mode ships no MP3s"
+        r["voice_and_device"] = "voice change re-records every screen in Kore; device mode ships no MP3s"
         page.click("#ed-done")
+
+        # --- 4b. No server key: the key pasted on the upload page is reused for re-recording (never stored) ---
+        os.environ.pop("GEMINI_API_KEY")
+        page.click("#again")
+        page.check("input[name=mode][value=ai]", force=True)
+        page.evaluate("document.querySelector('details.adv').open = true")
+        page.select_option("#provider", "gemini")
+        page.fill("#api_key", "users-own-key")
+        page.check("input[name=mode][value=basic]", force=True)
+        jobk = convert("audio", "Charon")
+        page.click("#edit")
+        page.wait_for_selector("#editor:not(.is-hidden) .ed-item")
+        page.locator(".ed-pick").nth(2).click()
+        page.fill("#ed-f-narration", "A fresh line for screen three.")
+        before = len(TTS["calls"])
+        page.click("#ed-save")
+        page.wait_for_function("document.getElementById('ed-status').textContent.startsWith('Audio recorded')", timeout=30000)
+        last = TTS["calls"][before:]
+        assert len(last) == 1 and last[0][1] == "Charon" and last[0][3] == "users-own-key", last
+        page.click("#ed-done")
+        os.environ["GEMINI_API_KEY"] = "server-test-key"
+        r["own_key"] = "re-recorded with the key pasted at upload, in Charon"
+
+        # --- 4c. Player never swaps in a different voice for a screen without audio ---
+        import copy, json as _j
+        from ppt2scorm.package import build_package
+        jc = get(f"/api/jobs/{jobk}/course")["course"]
+        cc = copy.deepcopy(jc)
+        cc["screens"][1].pop("audio")
+        tmpd = Path(tempfile.mkdtemp())
+        from web.app import JOBS_DIR
+        build_package(cc, tmpd / "c.zip", media_dir=JOBS_DIR / jobk / "media", keep_dir=tmpd / "pkg")
+        pp = b.new_page()
+        pp.add_init_script("window.__spoken = 0; const o = window.speechSynthesis && speechSynthesis.speak.bind(speechSynthesis);"
+                           "if (o) speechSynthesis.speak = (u) => { window.__spoken++; };")
+        pp.goto((tmpd / "pkg" / "index.html").as_uri())
+        pp.wait_for_selector(".vo")
+        pp.click("#btn-next")
+        pp.wait_for_timeout(500)
+        assert pp.text_content(".vo-play .vo-label") == "No audio for this screen" and pp.is_disabled(".vo-play")
+        assert pp.evaluate("window.__spoken") == 0, "device voice must not stand in for a missing recording"
+        pp.close()
+        r["no_voice_mixing"] = "screen without audio shows 'No audio for this screen'; no device voice"
 
         # --- 5. Key rejected by the voice service: course still made, falls back to device voice ---
         TTS["fail"] = 401

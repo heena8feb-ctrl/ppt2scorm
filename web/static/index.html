@@ -457,7 +457,7 @@ details.adv .panel { margin-top: 18px; }
         $("summary").appendChild(document.createTextNode(" Includes your edits."));
         $("edit").focus();
       });
-    });
+    }, { geminiKey: function () { return $("provider").value === "gemini" ? $("api_key").value.trim() : ""; } });
   });
 
   $("again").addEventListener("click", function () {

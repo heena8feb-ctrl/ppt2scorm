@@ -63,7 +63,7 @@
     mcq: function () { return { type: "mcq", question: "", options: ["", ""], correct: 0, explanation: "", scored: true }; }
   };
 
-  var S = { media: [], picking: false, cfg: null, needsAudio: 0, recording: false, ttsServerKey: false, voPoll: null, id: null, course: null, brand: "#1f5eff", sel: "course", dirty: false, changed: false, version: 1, onClose: null, previewTimer: null };
+  var S = { media: [], picking: false, cfg: null, key: "", hostKey: null, needsAudio: 0, recording: false, ttsServerKey: false, voPoll: null, id: null, course: null, brand: "#1f5eff", sel: "course", dirty: false, changed: false, version: 1, onClose: null, previewTimer: null };
   var $ = function (id) { return document.getElementById(id); };
   var savedNarr = new WeakMap();   // screen -> narration text as last saved (to spot audio that will need re-recording)
   var MAX_NARR = 1500;
@@ -366,7 +366,8 @@
       else if (scr.audio && !changed) {
         note.appendChild(document.createTextNode("Recorded (" + fmtTime(scr.audio.duration) + "). "));
         note.appendChild(el("audio", { controls: "", preload: "none", src: mediaUrl(scr.audio.src), "aria-label": "Recorded narration" }));
-      } else note.textContent = changed && scr.audio ? "Changed: this screen will need new audio after you save." : "No audio yet. Save, then record audio in Course settings.";
+      } else note.textContent = (changed && scr.audio ? "Changed. " : "No audio yet. ") +
+        (canRecord() ? "When you save, it's recorded in " + voiceName() + "." : "Save, then record audio in Course settings.");
     };
     ta.addEventListener("input", function () { scr.narration = ta.value; touch(); refresh(); });
     wrap.appendChild(el("label", { class: "ed-label", for: "ed-f-narration", text: "Narration script (optional)" }));
@@ -410,16 +411,29 @@
       }
       rec.appendChild(el("button", { type: "button", class: "btn primary", id: "ed-record", text: "Record audio",
         disabled: S.recording || S.dirty || !S.needsAudio ? "" : false, onclick: function () { record(key ? key.value.trim() : ""); } }));
+      if (key && S.key) key.value = S.key;
       box.appendChild(rec);
     }
     return box;
   }
 
+  function voiceName() { return (S.course.voiceover && S.course.voiceover.voice) || (S.cfg && S.cfg.default_voice) || "the chosen voice"; }
+  // A Gemini key the browser already has this session: one typed here, or the one pasted on the upload page.
+  // It stays in this page's memory only and is sent with each recording request, never stored on the server.
+  function knownKey() { return S.key || (S.hostKey ? S.hostKey() : ""); }
+  function canRecord() { return S.ttsServerKey || !!knownKey(); }
+
   function record(key) {
-    if (!S.ttsServerKey && !key) { $("ed-record-msg").textContent = "Paste a Gemini API key first."; $("ed-tts-key").focus(); return; }
-    api("POST", "/api/jobs/" + S.id + "/narration", { api_key: key })
-      .then(function () { S.recording = true; renderForm(); renderOutline(); pollRecording(); })
-      .catch(function (e) { $("ed-record-msg").textContent = e.message; });
+    key = key || knownKey();
+    if (!S.ttsServerKey && !key) {
+      var m = $("ed-record-msg"); if (m) m.textContent = "Paste a Gemini API key first.";
+      var k = $("ed-tts-key"); if (k) k.focus();
+      return Promise.resolve(false);
+    }
+    if (key) S.key = key;
+    return api("POST", "/api/jobs/" + S.id + "/narration", { api_key: S.ttsServerKey && !key ? "" : key })
+      .then(function () { S.recording = true; renderForm(); renderOutline(); pollRecording(); return true; })
+      .catch(function (e) { var m = $("ed-record-msg"); status(e.message, "error"); if (m) m.textContent = e.message; return false; });
   }
 
   function pollRecording() {
@@ -436,7 +450,7 @@
       var warn = (j.narr_warnings || []).join(" ");
       load().then(function () {
         S.changed = true;
-        status(warn || ("Audio recorded for " + (j.narr_result || "all") + " screens. The preview and downloads include it."), warn ? "error" : "");
+        status(warn || ("Audio recorded in " + voiceName() + " for " + (j.narr_result || "all") + " screens. The preview and downloads include it."), warn ? "error" : "");
       });
     }).catch(function () { S.voPoll = setTimeout(pollRecording, 3000); });
   }
@@ -515,8 +529,14 @@
         S.saving = false; S.changed = true;
         if (typeof S.sel === "number" && S.sel >= course.screens.length) S.sel = course.screens.length - 1;
         return load().then(function () {
+          var n = S.needsAudio, screens = n + (n === 1 ? " screen" : " screens");
+          if (voMode() === "audio" && n && canRecord()) {
+            return record().then(function (ok) {
+              if (ok) status("Saved. Recording new audio for " + screens + " in " + voiceName() + "…");
+            });
+          }
           status("Saved. The preview and downloads now include your changes." +
-            (voMode() === "audio" && S.needsAudio ? " " + S.needsAudio + (S.needsAudio === 1 ? " screen needs" : " screens need") + " new audio: use Record audio." : ""));
+            (voMode() === "audio" && n ? " " + screens + " need new audio: add a Gemini key under Course settings, then click Record audio." : ""));
         });
       })
       .catch(function (e) {
@@ -592,9 +612,10 @@
   }
 
   window.CourseEditor = {
-    open: function (jobId, onClose) {
+    open: function (jobId, onClose, opts) {
       build();
       S.id = jobId; S.onClose = onClose; S.sel = 0; S.changed = false;
+      S.hostKey = opts && opts.geminiKey || null;
       document.body.classList.add("editing");
       $("editor").classList.remove("is-hidden");
       window.scrollTo(0, 0);

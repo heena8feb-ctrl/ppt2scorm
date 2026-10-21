@@ -381,9 +381,11 @@ async def record_narration(jid: str, request: Request):
             raise HTTPException(400, "Paste a Google Gemini API key to record audio.")
         quota = (_client_ip(request), time.strftime("%Y-%m-%d"))
         with lock:
-            if usage.get(quota, 0) >= DAILY_LIMIT:
-                raise HTTPException(429, f"You've used today's {DAILY_LIMIT} free AI runs. Paste your own Gemini key to continue.")
-            usage[quota] = usage.get(quota, 0) + 1
+            if not j.get("voice_quota_counted"):   # re-recording edited screens of the same course is free
+                if usage.get(quota, 0) >= DAILY_LIMIT:
+                    raise HTTPException(429, f"You've used today's {DAILY_LIMIT} free AI runs. Paste your own Gemini key to continue.")
+                usage[quota] = usage.get(quota, 0) + 1
+                jobs[jid]["voice_quota_counted"] = True
     _update(jid, narr_status="running", narr_done=0, narr_total=0, narr_warnings=[])
     pool.submit(_record, jid, key)
     return {"recording": True}

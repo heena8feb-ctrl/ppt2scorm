@@ -1,6 +1,6 @@
 /* Voice-over for the course player.
-   Plays each screen's recorded narration (screen.audio), or reads screen.narration aloud with the device's
-   built-in voice when there is no recording. Controls: play/pause, replay, captions and auto-play.
+   Plays each screen's recorded narration (screen.audio) when the course uses an AI voice, or reads
+   screen.narration aloud with the device's built-in voice when the course is set to device voice. Controls: play/pause, replay, captions and auto-play.
    Usage: Voice.init(course); Voice.show(screen or null) on every screen change. */
 (function (global) {
   "use strict";
@@ -43,6 +43,13 @@
     document.addEventListener("keydown", function () { activated = true; }, true);
   }
 
+  function setUnavailable(on) {
+    bar.classList.toggle("no-audio", on);
+    playBtn.disabled = replayBtn.disabled = on;
+    if (on) playBtn.querySelector(".vo-label").textContent = "No audio for this screen";
+    else if (!playing) playBtn.querySelector(".vo-label").textContent = "Play narration";
+  }
+
   function setPlaying(on) {
     playing = on;
     playBtn.setAttribute("aria-pressed", String(on));
@@ -65,8 +72,8 @@
     audio.addEventListener("ended", function () { setPlaying(false); progress(1, audio.duration, audio.duration); });
     audio.addEventListener("pause", function () { if (!audio.ended) setPlaying(false); });
     audio.addEventListener("play", function () { setPlaying(true); });
-    audio.addEventListener("error", function () { // file missing or blocked: read the script aloud instead
-      if (kind === "file" && canSpeak) { audio = null; kind = "speech"; speechPos = 0; if (playing) play(); }
+    audio.addEventListener("error", function () { // file missing or blocked: show captions only, no other voice
+      if (kind === "file") { audio = null; kind = null; setPlaying(false); setUnavailable(true); }
     });
   }
 
@@ -115,13 +122,12 @@
       text = s && typeof s.narration === "string" ? s.narration.trim() : "";
       var file = mode === "audio" && s && s.audio && s.audio.src;
       if (!text && !file) { bar.hidden = capBox.hidden = true; return; }
+      // Recorded courses never fall back to the device voice: a second, different voice mid-course is jarring.
       if (file) useFile(s.audio.src, s.audio.duration);
-      else if (canSpeak && text) { kind = "speech"; progress(0); }
+      else if (mode === "device" && canSpeak && text) { kind = "speech"; progress(0); }
       else kind = null;
       bar.hidden = false;
-      bar.classList.toggle("no-audio", !kind);
-      playBtn.disabled = replayBtn.disabled = !kind;
-      if (!kind) playBtn.querySelector(".vo-label").textContent = "Narration unavailable";
+      setUnavailable(!kind);
       capBox.textContent = text;
       capBox.hidden = !prefs.cc || !text;
       if (kind && prefs.auto && activated) play();
