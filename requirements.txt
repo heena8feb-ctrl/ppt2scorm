@@ -7,6 +7,6 @@ anthropic>=0.40
 openai>=1.40
 lameenc>=1.7           # MP3 encoding for narration (optional: falls back to ffmpeg or WAV)
 # web app
-fastapi>=0.110
+fastapi>=0.148.0
 uvicorn[standard]>=0.29
 python-multipart>=0.0.18
