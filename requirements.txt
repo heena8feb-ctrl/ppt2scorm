@@ -8,5 +8,5 @@ openai>=1.40
 lameenc>=1.7           # MP3 encoding for narration (optional: falls back to ffmpeg or WAV)
 # web app
 fastapi>=0.110
-uvicorn[standard]>=0.29
+uvicorn[standard]>=0.54.0
 python-multipart>=0.0.18
