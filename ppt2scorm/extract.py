@@ -145,6 +145,8 @@ def _write(media_dir, name, data, w, h):
 
 
 def find_soffice():
+    if os.environ.get("PPT2SCORM_SLIDE_RENDERING") == "0":   # e.g. small free hosting plans with 512 MB of memory
+        return None
     for cand in ("soffice", "libreoffice"):
         if shutil.which(cand):
             return shutil.which(cand)

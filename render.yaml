@@ -1,0 +1,20 @@
+# One-click deploy on Render's free plan (no card needed): see "Share a link" in README.md
+services:
+  - type: web
+    name: ppt2scorm
+    runtime: docker
+    plan: free
+    region: singapore          # closest Render region to India
+    dockerfilePath: ./Dockerfile
+    healthCheckPath: /
+    envVars:
+      - key: GEMINI_API_KEY      # your Gemini key, so visitors don't need one (leave empty to make them paste their own)
+        sync: false
+      - key: PEXELS_API_KEY      # optional, for stock photos
+        sync: false
+      - key: PPT2SCORM_DAILY_LIMIT
+        value: "30"
+      - key: PPT2SCORM_WORKERS
+        value: "1"
+      - key: PPT2SCORM_SLIDE_RENDERING   # the free plan's 512 MB is too little for LibreOffice; set to 1 on a paid plan
+        value: "0"

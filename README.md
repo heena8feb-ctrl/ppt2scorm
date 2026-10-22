@@ -161,6 +161,20 @@ yourself and swap any photo. On the command line, add `--photos` with `PEXELS_AP
 In the editor you can add module dividers, infographics and sort activities, switch an infographic's layout,
 edit each part (with an icon picker), and choose which group each sort item belongs in.
 
+## Share a link (free hosting, no card)
+
+[![Deploy to Render](https://render.com/images/deploy-to-render-button.svg)](https://render.com/deploy?repo=https://github.com/heena8feb-ctrl/ppt2scorm)
+
+1. Click the button and sign in to Render with GitHub.
+2. Paste your Gemini key (and optionally a Pexels key) when asked, then click **Deploy**. The first build takes about 10 minutes.
+3. You get a link like `https://ppt2scorm.onrender.com` that opens on any laptop or phone.
+
+The free plan sleeps after 15 minutes without visitors and takes about a minute to wake, so open the link
+a few minutes before you present. Its 512 MB of memory is too small for LibreOffice, so charts and diagrams
+drawn as PowerPoint shapes aren't turned into images there (pictures in the deck still are). Everything is
+reset when the service restarts. Set `PPT2SCORM_SLIDE_RENDERING=1` on a paid plan to turn rendering back on.
+The same Dockerfile also runs on Google Cloud Run, Azure Container Apps or AWS App Runner.
+
 ## Quick start (command line, Windows)
 
 1. Install Python 3.10 or newer from python.org and tick **Add Python to PATH**.
