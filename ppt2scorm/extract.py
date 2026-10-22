@@ -112,11 +112,14 @@ def _save_image(blob, ext, media_dir, digest):
     if ext in ("emf", "wmf"):
         return None  # Windows vector formats: the slide gets rendered instead
     if ext == "svg":
-        return _write(media_dir, f"img_{digest}.svg", blob, 0, 0)
+        return None  # SVG can carry scripts; PowerPoint stores a PNG copy of SVG pictures, which is used instead
+    import warnings
     try:
-        im = Image.open(io.BytesIO(blob))
-        im.load()
-    except Exception:  # noqa: BLE001 - unreadable image: skip it
+        with warnings.catch_warnings():
+            warnings.simplefilter("error", Image.DecompressionBombWarning)   # > ~89 megapixels: refuse
+            im = Image.open(io.BytesIO(blob))
+            im.load()
+    except Exception:  # noqa: BLE001 - unreadable or oversized image: skip it
         return None
     if ext == "gif" and getattr(im, "is_animated", False):
         return _write(media_dir, f"img_{digest}.gif", blob, *im.size)
@@ -197,6 +200,36 @@ def render_slides(pptx_path, media_dir, numbers, timeout=150, crop_top=None):
     return out
 
 
+MAX_UNPACKED = int(os.environ.get("PPT2SCORM_MAX_UNPACKED_MB", "400")) * 1024 * 1024
+MAX_MEMBERS = 10000
+
+
+class DeckError(ValueError):
+    pass
+
+
+def check_archive(pptx_path):
+    """Refuse decks that would unpack to something huge ("zip bombs") before anything opens them.
+    Only the zip's table of contents is read, so this is fast even for big files."""
+    import zipfile
+    try:
+        with zipfile.ZipFile(pptx_path) as z:
+            infos = z.infolist()
+    except (zipfile.BadZipFile, OSError):
+        raise DeckError("That file couldn't be opened as a PowerPoint (.pptx) file.") from None
+    total = 0
+    if len(infos) > MAX_MEMBERS:
+        raise DeckError("That deck contains too many parts to be a normal presentation.")
+    for i in infos:
+        total += i.file_size
+        # deflate can't shrink ordinary content more than about 1000x; far more means a crafted file
+        if i.file_size > 10 * 1024 * 1024 and i.file_size > 200 * max(i.compress_size, 1):
+            raise DeckError("That deck looks damaged or crafted to use up memory, so it wasn't opened.")
+    if total > MAX_UNPACKED:
+        raise DeckError(f"That deck is over {MAX_UNPACKED // (1024 * 1024)} MB once unpacked. "
+                        "Compress its pictures (File > Compress Pictures) and try again.")
+
+
 def _without_decoration(pptx_path, decorative):
     """A temporary copy of the deck without logos and template pictures, so renders show just the content."""
     prs = Presentation(pptx_path)
@@ -231,6 +264,7 @@ def extract(pptx_path, media_dir, render=True):
     """Returns {title, slides:[{index, title, blocks, notes, images:[{src, w, h, alt, kind}]}], warnings:[...]}"""
     media_dir = Path(media_dir)
     media_dir.mkdir(parents=True, exist_ok=True)
+    check_archive(pptx_path)
     prs = Presentation(pptx_path)
     slides, pictures = [], []          # pictures: (slide number, shape, image)
     for i, slide in enumerate(prs.slides, start=1):

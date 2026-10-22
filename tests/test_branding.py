@@ -19,7 +19,7 @@ sys.path.insert(0, str(ROOT))
 SHOTS = Path(sys.argv[1]) if len(sys.argv) > 1 else None
 TMP = Path(tempfile.mkdtemp())
 os.environ["PPT2SCORM_BRANDS"] = str(TMP / "brands")
-os.environ["PPT2SCORM_ALLOW_PRIVATE_FETCH"] = "1"          # the mock site runs on this machine
+os.environ["PPT2SCORM_ALLOW_PRIVATE_FETCH"] = "tests-only"          # the mock site runs on this machine
 os.environ["PPT2SCORM_GOOGLE_FONTS_URL"] = "http://127.0.0.1:8912/css2"
 os.environ.pop("GEMINI_API_KEY", None)
 DECK = ROOT / "samples/data_privacy_essentials.pptx"
@@ -99,7 +99,7 @@ def main():
             raise AssertionError("not blocked: " + bad)
         except BrandError:
             pass
-    os.environ["PPT2SCORM_ALLOW_PRIVATE_FETCH"] = "1"
+    os.environ["PPT2SCORM_ALLOW_PRIVATE_FETCH"] = "tests-only"
     r["safety"] = "private network, cloud metadata and non-web addresses refused"
 
     import uvicorn
@@ -116,6 +116,7 @@ def main():
         page = b.new_page(viewport={"width": 1440, "height": 960})
         errors, prompts = [], []
         page.on("pageerror", lambda e: errors.append(str(e)))
+        page.on("console", lambda m: errors.append("CSP: " + m.text) if "Content Security Policy" in m.text else None)
         page.on("dialog", lambda d: (prompts.append(d.message), d.accept("Greenfield (saved)" if d.type == "prompt" else None)))
         page.goto(base)
         page.wait_for_selector("#brandkit option[value=deck]", state="attached")
@@ -172,12 +173,12 @@ def main():
         assert "Northwind" in page.text_content(".ed-brand-now")
         page.select_option("#ed-c-kit", "standard")
         page.click("#ed-kit-apply")
-        page.wait_for_function("document.getElementById('ed-status').textContent.startsWith('Brand applied')", timeout=15000)
+        page.wait_for_function("() => document.getElementById('ed-status').textContent.startsWith('Brand applied')", timeout=15000)
         assert page.text_content(".ed-brand-now") == "Standard look"
         page.frame_locator("#ed-preview").locator(".brand-dot").wait_for()
         page.select_option("#ed-c-kit", "kit:northwind")
         page.click("#ed-kit-apply")
-        page.wait_for_function("document.querySelector('.ed-brand-now') && document.querySelector('.ed-brand-now').textContent.includes('Northwind')", timeout=15000)
+        page.wait_for_function("() => document.querySelector('.ed-brand-now') && document.querySelector('.ed-brand-now').textContent.includes('Northwind')", timeout=15000)
         page.frame_locator("#ed-preview").locator(".brand-logo").wait_for()
         r["editor_switch"] = "standard look and back to the kit, preview updates"
         page.click("#ed-done")
@@ -195,7 +196,7 @@ def main():
         page.wait_for_selector("#editor:not(.is-hidden) .ed-item")
         page.click("#ed-course")
         page.click("#ed-kit-save")
-        page.wait_for_function("document.getElementById('ed-status').textContent.startsWith('Saved the brand kit')", timeout=15000)
+        page.wait_for_function("() => document.getElementById('ed-status').textContent.startsWith('Saved the brand kit')", timeout=15000)
         names = [k["name"] for k in get("/api/brands")["kits"]]
         assert "Greenfield (saved)" in names, names
         r["deck_kit"] = "deck theme detected (#0b6e4f, Montserrat/Georgia, logo), saved from the editor"
@@ -234,7 +235,7 @@ def main():
         exp = TMP / "northwind.brand.json"
         exp.write_text(json.dumps(exported))
         page.set_input_files("#bk-import", str(exp))
-        page.wait_for_function("document.getElementById('brand-help').textContent.startsWith('Imported')", timeout=15000)
+        page.wait_for_function("() => document.getElementById('brand-help').textContent.startsWith('Imported')", timeout=15000)
         assert page.input_value("#brandkit") == "northwind-2"
         r["kit_edit"] = "brand font uploaded, fake logo and fake font rejected, exported and re-imported as northwind-2"
 

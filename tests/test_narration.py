@@ -75,6 +75,7 @@ def main():
         page = b.new_page(viewport={"width": 1480, "height": 940})
         errors = []
         page.on("pageerror", lambda e: errors.append(str(e)))
+        page.on("console", lambda m: errors.append("CSP: " + m.text) if "Content Security Policy" in m.text else None)
         page.on("dialog", lambda d: d.accept())
         page.goto(base)
         page.wait_for_selector("#voice option", state="attached")
@@ -148,7 +149,7 @@ def main():
         assert "recorded in Sulafat" in page.text_content(".ed-narr-status"), page.text_content(".ed-narr-status")
         before = len(TTS["calls"])
         page.click("#ed-save")
-        page.wait_for_function("document.getElementById('ed-status').textContent.startsWith('Audio recorded')", timeout=30000)
+        page.wait_for_function("() => document.getElementById('ed-status').textContent.startsWith('Audio recorded')", timeout=30000)
         assert "in Sulafat" in page.text_content("#ed-status"), page.text_content("#ed-status")
         new_calls = TTS["calls"][before:]
         assert len(new_calls) == 1 and new_calls[0][1] == "Sulafat" and new_calls[0][2].startswith("Here's why"), new_calls
@@ -164,13 +165,13 @@ def main():
         page.select_option("#ed-c-voice", "Kore")
         before = len(TTS["calls"])
         page.click("#ed-save")
-        page.wait_for_function("document.getElementById('ed-status').textContent.startsWith('Audio recorded')", timeout=60000)
+        page.wait_for_function("() => document.getElementById('ed-status').textContent.startsWith('Audio recorded')", timeout=60000)
         voices = {c[1] for c in TTS["calls"][before:]}
         assert voices == {"Kore"} and len(TTS["calls"][before:]) == len(screens), (voices, len(TTS["calls"][before:]))
         assert get(f"/api/jobs/{job}/course")["needs_audio"] == 0
         page.select_option("#ed-c-vomode", "device")
         page.click("#ed-save")
-        page.wait_for_function("document.getElementById('ed-status').textContent.startsWith('Saved')", timeout=15000)
+        page.wait_for_function("() => document.getElementById('ed-status').textContent.startsWith('Saved')", timeout=15000)
         z = zip_of(job)
         assert not [n for n in z.namelist() if n.startswith("media/narr_")], "device mode ships no recordings"
         assert '"mode": "device"' in z.read("course.js").decode()
@@ -192,7 +193,7 @@ def main():
         page.fill("#ed-f-narration", "A fresh line for screen three.")
         before = len(TTS["calls"])
         page.click("#ed-save")
-        page.wait_for_function("document.getElementById('ed-status').textContent.startsWith('Audio recorded')", timeout=30000)
+        page.wait_for_function("() => document.getElementById('ed-status').textContent.startsWith('Audio recorded')", timeout=30000)
         last = TTS["calls"][before:]
         assert len(last) == 1 and last[0][1] == "Charon" and last[0][3] == "users-own-key", last
         page.click("#ed-done")

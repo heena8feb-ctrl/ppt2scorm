@@ -6,6 +6,7 @@ Environment:
   PPT2SCORM_DATA          where jobs are stored (default: a temp folder)
   PPT2SCORM_MAX_MB        max upload size in MB (default 50)
   PPT2SCORM_DAILY_LIMIT   AI conversions per visitor per day on the server's key (default 10)
+  Security settings (password, limits, client IP): see web/security.py
   PPT2SCORM_JOB_TTL_MIN   minutes before a job and its files are deleted (default 120)
 """
 import json
@@ -27,17 +28,19 @@ from ppt2scorm.ai_redesign import PROVIDERS, detect_provider
 from ppt2scorm.pipeline import add_narration, build_package, design_course, extract, screen_summary
 from ppt2scorm.narration import DEFAULT_VOICE, VOICES, narrate_course, prune_stale
 from ppt2scorm.schema import CourseError, check_types, resolve_images
-from ppt2scorm.extract import _save_image
+from ppt2scorm.extract import DeckError, _save_image, check_archive
 from ppt2scorm import brand as brandkit
 from ppt2scorm.brand import BrandError
 from ppt2scorm.website import brand_from_website
 from ppt2scorm.photos import PhotoError, add_photos, download as photo_download, search as photo_search
+from web import security
+from web.security import check_ai_quota, check_capacity, check_rate
 
 DATA = Path(os.environ.get("PPT2SCORM_DATA") or tempfile.mkdtemp(prefix="ppt2scorm_web_"))
 JOBS_DIR = DATA / "jobs"
 JOBS_DIR.mkdir(parents=True, exist_ok=True)
 MAX_BYTES = int(os.environ.get("PPT2SCORM_MAX_MB", "50")) * 1024 * 1024
-DAILY_LIMIT = int(os.environ.get("PPT2SCORM_DAILY_LIMIT", "10"))
+DAILY_LIMIT = security.DAILY_LIMIT
 JOB_TTL = int(os.environ.get("PPT2SCORM_JOB_TTL_MIN", "120")) * 60
 STATIC = Path(__file__).resolve().parent / "static"
 # Brand kits live outside the temporary job folder so they survive restarts. Everyone using this server shares
@@ -53,7 +56,6 @@ PROVIDER_LABELS = {"gemini": "Google Gemini", "claude": "Anthropic Claude", "ope
 app = FastAPI(title="ppt2scorm", docs_url=None, redoc_url=None)
 pool = ThreadPoolExecutor(max_workers=int(os.environ.get("PPT2SCORM_WORKERS", "2")))
 jobs = {}
-usage = {}  # (ip, day) -> count of AI conversions on the server's key
 lock = threading.Lock()
 
 STEPS = ["upload", "extract", "design", "photos", "narrate", "package", "done"]
@@ -63,9 +65,35 @@ def _server_key(provider):
     return bool(os.environ.get(PROVIDERS[provider][0]))
 
 
-def _client_ip(request):
-    fwd = request.headers.get("x-forwarded-for")
-    return fwd.split(",")[0].strip() if fwd else (request.client.host if request.client else "unknown")
+# Outermost first: security headers on every response, then the optional password.
+app.middleware("http")(security.password_gate)
+app.middleware("http")(security.security_headers)
+
+
+@app.get("/login", response_class=HTMLResponse)
+def login_form(request: Request):
+    return security.login_page(request)
+
+
+@app.post("/login")
+async def login(request: Request):
+    return await security.login_submit(request)
+
+
+@app.get("/logout")
+def logout():
+    return security.logout()
+
+
+if os.environ.get("PPT2SCORM_ALLOW_PRIVATE_FETCH"):
+    import logging
+    logging.getLogger("uvicorn.error").warning("PPT2SCORM_ALLOW_PRIVATE_FETCH is set: website checks are relaxed. "
+                                               "Use this only for automated tests, never on a server.")
+
+
+def _busy():
+    with lock:
+        return sum(1 for j in jobs.values() if j.get("status") == "running" or j.get("narr_status") == "running")
 
 
 def _cleanup():
@@ -185,6 +213,7 @@ def config():
         "default_voice": DEFAULT_VOICE,
         "tts_server_key": _server_key("gemini"),
         "photos_server_key": bool(os.environ.get("PEXELS_API_KEY")),
+        "signed_in": bool(security.PASSWORD),
     }
 
 
@@ -194,6 +223,8 @@ async def convert(request: Request, file: UploadFile = File(...), mode: str = Fo
                   instructions: str = Form(""), narration: str = Form("off"), voice: str = Form(""),
                   brand_kit: str = Form(""), photos: str = Form("off"), pexels_key: str = Form("")):
     _cleanup()
+    check_rate(request)
+    check_capacity(_busy(), DATA)
     photo_key = None
     if photos == "pexels":
         photo_key = pexels_key.strip() or os.environ.get("PEXELS_API_KEY")
@@ -232,12 +263,7 @@ async def convert(request: Request, file: UploadFile = File(...), mode: str = Fo
         raise HTTPException(400, f"No server key is set up for {PROVIDER_LABELS[provider]}. "
                                  "Paste your own API key, or choose Basic mode.")
     if uses_server_key:
-        key = (_client_ip(request), time.strftime("%Y-%m-%d"))
-        with lock:
-            if usage.get(key, 0) >= DAILY_LIMIT:
-                raise HTTPException(429, f"You've used today's {DAILY_LIMIT} free AI conversions. "
-                                         "Paste your own API key to continue, or choose Basic mode.")
-            usage[key] = usage.get(key, 0) + 1
+        check_ai_quota(request)
 
     jid = uuid.uuid4().hex
     folder = JOBS_DIR / jid
@@ -252,6 +278,11 @@ async def convert(request: Request, file: UploadFile = File(...), mode: str = Fo
                 raise HTTPException(413, f"File is larger than {MAX_BYTES // (1024 * 1024)} MB.")
             f.write(chunk)
 
+    try:
+        check_archive(folder / "deck.pptx")
+    except DeckError as e:
+        shutil.rmtree(folder, ignore_errors=True)
+        raise HTTPException(400, str(e))
     with lock:
         jobs[jid] = {"id": jid, "status": "running", "step": "upload", "created": time.time(),
                      "filename": Path(file.filename).name, "mode": mode, "brand": brand or None,
@@ -431,6 +462,7 @@ def _record(jid, tts_key):
 async def record_narration(jid: str, request: Request):
     """Record audio for every screen whose script has no matching audio yet (runs in the background)."""
     j = _ready(jid)
+    check_rate(request)
     if j.get("narr_status") == "running":
         raise HTTPException(409, "Audio is already being recorded.")
     try:
@@ -442,12 +474,9 @@ async def record_narration(jid: str, request: Request):
         key = os.environ.get(PROVIDERS["gemini"][0])
         if not key:
             raise HTTPException(400, "Paste a Google Gemini API key to record audio.")
-        quota = (_client_ip(request), time.strftime("%Y-%m-%d"))
-        with lock:
-            if not j.get("voice_quota_counted"):   # re-recording edited screens of the same course is free
-                if usage.get(quota, 0) >= DAILY_LIMIT:
-                    raise HTTPException(429, f"You've used today's {DAILY_LIMIT} free AI runs. Paste your own Gemini key to continue.")
-                usage[quota] = usage.get(quota, 0) + 1
+        if not j.get("voice_quota_counted"):   # re-recording edited screens of the same course is free
+            check_ai_quota(request)
+            with lock:
                 jobs[jid]["voice_quota_counted"] = True
     _update(jid, narr_status="running", narr_done=0, narr_total=0, narr_warnings=[])
     pool.submit(_record, jid, key)
@@ -481,7 +510,8 @@ def media_file(jid: str, name: str):
 
 
 @app.post("/api/jobs/{jid}/media")
-async def upload_media(jid: str, file: UploadFile = File(...), alt: str = Form("")):
+async def upload_media(jid: str, request: Request, file: UploadFile = File(...), alt: str = Form("")):
+    check_rate(request)
     _ready(jid)
     data = await file.read(MAX_IMAGE_BYTES + 1)
     if len(data) > MAX_IMAGE_BYTES:
@@ -516,6 +546,7 @@ def _photo_key(body):
 @app.post("/api/jobs/{jid}/photos/search")
 async def editor_photo_search(jid: str, request: Request):
     _ready(jid)
+    check_rate(request)
     body = await request.json()
     import asyncio
     try:
@@ -528,6 +559,7 @@ async def editor_photo_search(jid: str, request: Request):
 @app.post("/api/jobs/{jid}/photos/add")
 async def editor_photo_add(jid: str, request: Request):
     _ready(jid)
+    check_rate(request)
     body = await request.json()
     photo = body.get("photo") if isinstance(body.get("photo"), dict) else {}
     import asyncio
@@ -624,6 +656,7 @@ def _new_draft(kit, logo, fonts, notes, how):
 @app.post("/api/brand-drafts/website")
 async def draft_from_website(request: Request):
     _cleanup()
+    check_rate(request)
     body = await request.json()
     url = (body.get("url") or "").strip()[:500]
     if not url:
@@ -631,12 +664,7 @@ async def draft_from_website(request: Request):
     provider, key = body.get("provider"), (body.get("api_key") or "").strip()
     use_ai = provider in PROVIDERS and (key or _server_key(provider))
     if use_ai and not key:
-        quota = (_client_ip(request), time.strftime("%Y-%m-%d"))
-        with lock:
-            if usage.get(quota, 0) >= DAILY_LIMIT:
-                use_ai = False   # out of free AI uses today: the scores still give a good kit
-            else:
-                usage[quota] = usage.get(quota, 0) + 1
+        use_ai = check_ai_quota(request, soft=True)   # out of free AI uses today: the scores still give a good kit
     import asyncio
     try:
         kit, logo, fonts, notes, how = await asyncio.get_running_loop().run_in_executor(
@@ -647,7 +675,8 @@ async def draft_from_website(request: Request):
 
 
 @app.post("/api/brand-drafts/deck")
-async def draft_from_deck(file: UploadFile = File(...)):
+async def draft_from_deck(request: Request, file: UploadFile = File(...)):
+    check_rate(request)
     _cleanup()
     if not (file.filename or "").lower().endswith(".pptx"):
         raise HTTPException(400, "Choose a PowerPoint .pptx file.")
@@ -687,6 +716,7 @@ def _font_meta(raw, filename):
 
 @app.post("/api/brands")
 async def save_brand(request: Request):
+    check_rate(request)
     """Create or update a kit. Multipart: kit (JSON), source ('kit:<id>' | 'draft:<id>' | ''), replace ('1' to overwrite
     the source kit), logo (file), remove_logo ('1'), heading_files / body_files (font files)."""
     if not BRAND_SAVING:
@@ -763,7 +793,8 @@ def export_brand(kid: str):
 
 
 @app.post("/api/brands/import")
-async def import_brand(file: UploadFile = File(...)):
+async def import_brand(request: Request, file: UploadFile = File(...)):
+    check_rate(request)
     if not BRAND_SAVING:
         raise HTTPException(403, "Saving brand kits is turned off on this server.")
     data = await file.read(40 * 1024 * 1024)
@@ -811,6 +842,12 @@ async def set_course_brand(jid: str, request: Request):
     _update(jid, brand_detected=False, brand_name=kit["name"] if kit else None)
     return {"version": j["version"], "brand": kit["colors"]["primary"] if kit else "#1f5eff",
             "brand_kit": {"name": kit["name"], "logo": bool(kit.get("logo"))} if kit else None}
+
+
+@app.get("/api/whoami")
+def whoami(request: Request):
+    """The visitor's own IP as the app sees it, to check PPT2SCORM_CLIENT_IP_HEADER / PPT2SCORM_PROXY_HOPS."""
+    return {"ip": security.client_ip(request)}
 
 
 @app.get("/healthz")

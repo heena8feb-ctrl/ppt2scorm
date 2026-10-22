@@ -89,6 +89,7 @@ def main():
         page = b.new_page(viewport={"width": 1480, "height": 940})
         errors = []
         page.on("pageerror", lambda e: errors.append(str(e)))
+        page.on("console", lambda m: errors.append("CSP: " + m.text) if "Content Security Policy" in m.text else None)
         page.on("dialog", lambda d: d.accept())
         page.goto(base)
 
@@ -166,7 +167,7 @@ def main():
         page.locator(".ed-pick").nth([s["type"] for s in course["screens"]].index("scenario")).click()
         page.click("text=Remove image")
         page.keyboard.press("Control+s")
-        page.wait_for_function("document.getElementById('ed-status').textContent.startsWith('Saved')", timeout=15000)
+        page.wait_for_function("() => document.getElementById('ed-status').textContent.startsWith('Saved')", timeout=15000)
         c2 = api("/course", job)["course"]
         by = {s["type"]: s.get("image") for s in c2["screens"]}
         assert by["mcq"]["alt"] == "Close-up of the drain filter" and "up_" in by["content"]["src"] and by["scenario"] is None, by

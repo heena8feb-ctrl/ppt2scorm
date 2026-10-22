@@ -17,12 +17,14 @@ import colorsys
 import hashlib
 import io
 import json
+import os
 import re
 import shutil
 import zipfile
 from pathlib import Path
 
 HEX = re.compile(r"^#[0-9a-fA-F]{6}$")
+MAX_KITS = int(os.environ.get("PPT2SCORM_MAX_BRAND_KITS", "50"))
 SAFE = re.compile(r"^[A-Za-z0-9 _.&'()-]{1,60}$")
 CORNERS = {"rounded": 1.0, "soft": 0.5, "square": 0.0}
 FONT_EXTS = {".woff2": "woff2", ".woff": "woff", ".ttf": "truetype", ".otf": "opentype"}
@@ -235,7 +237,12 @@ def from_deck(pptx_path):
     Returns (kit, logo_png_bytes or None, notes)."""
     from pptx import Presentation
     from pptx.enum.shapes import MSO_SHAPE_TYPE
+    from .extract import DeckError, check_archive
 
+    try:
+        check_archive(pptx_path)
+    except DeckError as e:
+        raise BrandError(str(e)) from None
     notes = []
     theme = {}
     with zipfile.ZipFile(pptx_path) as z:
@@ -375,6 +382,8 @@ class Store:
         if replace_id:
             kit["id"] = replace_id
         else:
+            if self.root.is_dir() and sum(1 for d in self.root.iterdir() if d.is_dir()) >= MAX_KITS:
+                raise BrandError(f"this server already has {MAX_KITS} brand kits. Delete one you no longer use first")
             base, i = kit["id"], 2
             while (self.root / kit["id"]).exists():
                 kit["id"] = f"{base}-{i}"[:40]

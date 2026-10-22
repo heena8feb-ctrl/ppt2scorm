@@ -23,7 +23,7 @@ class PhotoError(Exception):
 
 def _allowed_image_host(url):
     host = urllib.parse.urlsplit(url).hostname or ""
-    if os.environ.get("PPT2SCORM_ALLOW_PRIVATE_FETCH") == "1" and host == "127.0.0.1":
+    if os.environ.get("PPT2SCORM_ALLOW_PRIVATE_FETCH") == "tests-only" and host == "127.0.0.1":
         return True   # tests only
     return host == "images.pexels.com"
 

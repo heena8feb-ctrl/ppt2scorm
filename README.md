@@ -166,7 +166,8 @@ edit each part (with an icon picker), and choose which group each sort item belo
 [![Deploy to Render](https://render.com/images/deploy-to-render-button.svg)](https://render.com/deploy?repo=https://github.com/heena8feb-ctrl/ppt2scorm)
 
 1. Click the button and sign in to Render with GitHub.
-2. Paste your Gemini key (and optionally a Pexels key) when asked, then click **Deploy**. The first build takes about 10 minutes.
+2. Choose a password people will need to open the app (`PPT2SCORM_APP_PASSWORD`), paste your Gemini key
+   (and optionally a Pexels key), then click **Deploy**. The first build takes about 10 minutes.
 3. You get a link like `https://ppt2scorm.onrender.com` that opens on any laptop or phone.
 
 The free plan sleeps after 15 minutes without visitors and takes about a minute to wake, so open the link
@@ -174,6 +175,8 @@ a few minutes before you present. Its 512 MB of memory is too small for LibreOff
 drawn as PowerPoint shapes aren't turned into images there (pictures in the deck still are). Everything is
 reset when the service restarts. Set `PPT2SCORM_SLIDE_RENDERING=1` on a paid plan to turn rendering back on.
 The same Dockerfile also runs on Google Cloud Run, Azure Container Apps or AWS App Runner.
+Before sharing a hosted copy, read [SECURITY.md](SECURITY.md): it lists the settings that protect your keys
+and server, and how to check them.
 
 ## Quick start (command line, Windows)
 
@@ -247,6 +250,7 @@ python -m ppt2scorm.cli my_deck.pptx --preview-dir preview
 | `player/rich.js` | Module dividers, the eight infographic layouts and the sort activity. |
 | `ppt2scorm/pipeline.py` | The shared conversion steps used by both the command line and the web app. |
 | `web/app.py` | FastAPI web app: upload, background conversion with progress, preview, downloads, limits and cleanup. |
+| `web/security.py` | Optional password, visitor IPs, usage limits and browser security headers (see [SECURITY.md](SECURITY.md)). |
 | `web/static/index.html` | The web app's single page. |
 | `ppt2scorm/package.py` | Copies the player, embeds the course, writes `imsmanifest.xml` (SCORM 1.2 with mastery score), and zips it. |
 | `player/` | One reusable HTML/CSS/JS player, with no external dependencies, mobile-friendly and keyboard accessible. |
@@ -266,7 +270,7 @@ Learners must complete each interaction before **Next** unlocks. If they fail th
 
 ## Testing before you roll out
 
-1. Build the sample with `python -m ppt2scorm.cli samples/data_privacy_essentials.pptx --course-json samples/data_privacy_essentials.course.json --preview-dir out/preview --out out/sample.zip`, then run `python tests/test_playthrough.py`, `python tests/test_web.py`, `python tests/test_editor.py`, `python tests/test_visuals.py`, `python tests/test_retry.py`, `python tests/test_narration.py`, `python tests/test_branding.py` and `python tests/test_rich.py` (requires `pip install -r requirements-dev.txt && playwright install chromium`).
+1. Build the sample with `python -m ppt2scorm.cli samples/data_privacy_essentials.pptx --course-json samples/data_privacy_essentials.course.json --preview-dir out/preview --out out/sample.zip`, then run `python tests/test_playthrough.py`, `python tests/test_web.py`, `python tests/test_editor.py`, `python tests/test_visuals.py`, `python tests/test_retry.py`, `python tests/test_narration.py`, `python tests/test_branding.py`, `python tests/test_rich.py` and `python tests/test_security.py` (requires `pip install -r requirements-dev.txt && playwright install chromium`).
 2. Upload the zip to **SCORM Cloud** (Rustici's free account). It is the standard compatibility check.
 3. Upload to your own LMS's test instance and do one full pass and one deliberate fail.
 

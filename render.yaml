@@ -1,4 +1,5 @@
 # One-click deploy on Render's free plan (no card needed): see "Share a link" in README.md
+# Security settings are explained in SECURITY.md and web/security.py.
 services:
   - type: web
     name: ppt2scorm
@@ -6,15 +7,29 @@ services:
     plan: free
     region: singapore          # closest Render region to India
     dockerfilePath: ./Dockerfile
-    healthCheckPath: /
+    healthCheckPath: /healthz
     envVars:
+      - key: PPT2SCORM_APP_PASSWORD   # people must enter this to use the app (strongly recommended)
+        sync: false
       - key: GEMINI_API_KEY      # your Gemini key, so visitors don't need one (leave empty to make them paste their own)
         sync: false
       - key: PEXELS_API_KEY      # optional, for stock photos
         sync: false
-      - key: PPT2SCORM_DAILY_LIMIT
+      - key: PPT2SCORM_DAILY_LIMIT          # AI runs per visitor per day on your key
         value: "30"
+      - key: PPT2SCORM_GLOBAL_DAILY_LIMIT   # AI runs per day on your key, everyone together
+        value: "100"
+      - key: PPT2SCORM_CLIENT_IP_HEADER     # set by Cloudflare in front of Render; visitors can't forge it
+        value: cf-connecting-ip
+      - key: PPT2SCORM_PROXY_HOPS           # fallback if that header is missing
+        value: "2"
+      - key: PPT2SCORM_BRAND_SAVING         # public server: kits can be used per course but not saved for everyone
+        value: "0"
+      - key: PPT2SCORM_MAX_QUEUE
+        value: "3"
+      - key: PPT2SCORM_MAX_DISK_MB
+        value: "1500"
       - key: PPT2SCORM_WORKERS
         value: "1"
-      - key: PPT2SCORM_SLIDE_RENDERING   # the free plan's 512 MB is too little for LibreOffice; set to 1 on a paid plan
+      - key: PPT2SCORM_SLIDE_RENDERING      # the free plan's 512 MB is too little for LibreOffice; set to 1 on a paid plan
         value: "0"

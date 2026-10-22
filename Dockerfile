@@ -1,5 +1,6 @@
 # ppt2scorm web app
-FROM python:3.12-slim
+# Base image pinned to the Python 3.12 line on Debian bookworm (Dependabot proposes updates).
+FROM python:3.12-slim-bookworm
 
 ENV PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1 PORT=7860
 
@@ -12,8 +13,8 @@ RUN if [ "$WITH_RENDERING" = "1" ]; then \
     fi
 WORKDIR /app
 
-COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
+COPY requirements.lock .
+RUN pip install --no-cache-dir -r requirements.lock
 
 COPY ppt2scorm ./ppt2scorm
 COPY player ./player
@@ -24,4 +25,6 @@ RUN useradd --create-home appuser
 USER appuser
 
 EXPOSE 7860
-CMD uvicorn web.app:app --host 0.0.0.0 --port ${PORT} --proxy-headers --forwarded-allow-ips="*"
+# No --proxy-headers: the visitor's IP is read in web/security.py from a header the host sets and visitors can't
+# forge (PPT2SCORM_CLIENT_IP_HEADER) or from a fixed number of proxy hops (PPT2SCORM_PROXY_HOPS).
+CMD uvicorn web.app:app --host 0.0.0.0 --port ${PORT} --no-server-header

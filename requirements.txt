@@ -1,8 +1,12 @@
-python-pptx>=1.0
+# For laptops and development: tested minimum versions (newer ones are allowed so any Python 3.10+ works).
+# Hosted copies install the exact versions in requirements.lock instead.
+python-pptx>=1.0.2
+pillow>=13.0      # 13.0 fixes known image-parsing vulnerabilities
+fonttools>=4.50        # checks uploaded brand fonts are real fonts
 anthropic>=0.40
 openai>=1.40
-lameenc>=1.7        # MP3 encoding for narration (optional: falls back to ffmpeg or WAV)
+lameenc>=1.7           # MP3 encoding for narration (optional: falls back to ffmpeg or WAV)
 # web app
 fastapi>=0.110
 uvicorn[standard]>=0.29
-python-multipart>=0.0.9
+python-multipart>=0.0.18

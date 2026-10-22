@@ -31,6 +31,7 @@ def main():
         page = b.new_page(viewport={"width": 1480, "height": 940})
         errors = []
         page.on("pageerror", lambda e: errors.append(str(e)))
+        page.on("console", lambda m: errors.append("CSP: " + m.text) if "Content Security Policy" in m.text else None)
         page.on("dialog", lambda d: d.accept())
         page.goto(base)
 
@@ -93,7 +94,7 @@ def main():
 
         # save with Ctrl+S
         page.keyboard.press("Control+s")
-        page.wait_for_function("document.getElementById('ed-status').textContent.startsWith('Saved')", timeout=15000)
+        page.wait_for_function("() => document.getElementById('ed-status').textContent.startsWith('Saved')", timeout=15000)
         saved = api()
         c = saved["course"]
         scen_i = qi  # moved up from qi+1
@@ -134,7 +135,7 @@ def main():
 
         # revert to the AI draft
         page.click("#ed-revert")
-        page.wait_for_function("document.getElementById('ed-status').textContent.startsWith('Back to')", timeout=15000)
+        page.wait_for_function("() => document.getElementById('ed-status').textContent.startsWith('Back to')", timeout=15000)
         back = api()
         assert back["course"]["screens"] == draft["screens"] and back["edited"] is False
         assert page.locator(".ed-item").count() == n_screens

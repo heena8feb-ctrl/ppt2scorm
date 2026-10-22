@@ -1,0 +1,13 @@
+# Exact, tested versions used by the Docker image (and so by hosted copies). Dependabot proposes updates.
+python-pptx==1.0.2
+pillow==13.0.0
+lxml==6.1.3
+fonttools==4.66.1      # checks uploaded brand fonts are real fonts
+anthropic==1.15.0
+openai==3.35.1
+lameenc==1.9.0         # MP3 encoding for narration (optional: falls back to ffmpeg or WAV)
+# web app
+fastapi==0.150.0
+starlette==1.7.0
+uvicorn[standard]==0.54.0
+python-multipart==0.0.32

@@ -66,8 +66,9 @@ def main():
         page = browser.new_page(viewport={"width": 1180, "height": 900})
         errors = []
         page.on("pageerror", lambda e: errors.append(str(e)))
+        page.on("console", lambda m: errors.append("CSP: " + m.text) if "Content Security Policy" in m.text else None)
         page.goto(base)
-        page.wait_for_function("document.querySelectorAll('#provider option').length > 0")
+        page.wait_for_function("() => document.querySelectorAll('#provider option').length > 0")
         assert page.locator("#convert").is_disabled()
         if SHOTS: page.screenshot(path=str(SHOTS / "web_1_empty.png"), full_page=True)
 
@@ -148,19 +149,16 @@ def main():
         results["daily_limit_statuses"] = statuses
         assert statuses[-1] == 429, statuses
         # corrupt pptx -> friendly error
-        jid = req.post(base + "/api/convert", multipart={"file": {"name": "broken.pptx", "mimeType": "application/octet-stream",
-                                                                  "buffer": b"not a pptx"}, "mode": "basic"}).json()["job_id"]
-        for _ in range(50):
-            j = req.get(base + f"/api/jobs/{jid}").json()
-            if j["status"] != "running": break
-            time.sleep(0.2)
-        results["corrupt_error"] = j.get("error")
-        assert j["status"] == "error" and "PowerPoint" in j["error"], j
+        res = req.post(base + "/api/convert", multipart={"file": {"name": "broken.pptx", "mimeType": "application/octet-stream",
+                                                                  "buffer": b"not a pptx"}, "mode": "basic"})
+        assert res.status == 400, res.status   # refused straight away, before any work starts
+        results["corrupt_error"] = res.json()["detail"]
+        assert "PowerPoint" in results["corrupt_error"], results["corrupt_error"]
 
         # 7. Mobile layout
         m = browser.new_page(viewport={"width": 390, "height": 844})
         m.goto(base)
-        m.wait_for_function("document.querySelectorAll('#provider option').length > 0")
+        m.wait_for_function("() => document.querySelectorAll('#provider option').length > 0")
         if SHOTS: m.screenshot(path=str(SHOTS / "web_6_mobile.png"), full_page=True)
         assert m.evaluate("document.documentElement.scrollWidth <= window.innerWidth"), "horizontal scroll on mobile"
         assert not errors, errors

@@ -1,0 +1,16 @@
+# Checks the exact versions the hosted app installs against known vulnerabilities
+name: Dependency audit
+on:
+  push: { branches: [main] }
+  pull_request: { branches: [main] }
+  schedule: [{ cron: "41 4 * * 1" }]
+permissions:
+  contents: read
+jobs:
+  pip-audit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: "3.12" }
+      - run: pip install pip-audit && pip-audit -r requirements.lock

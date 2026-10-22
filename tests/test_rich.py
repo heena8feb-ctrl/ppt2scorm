@@ -75,7 +75,8 @@ def main():
     mport = mock.server_address[1]
     os.environ.update({"GEMINI_API_KEY": "server-key", "PPT2SCORM_DAILY_LIMIT": "50",
                        "PPT2SCORM_GEMINI_BASE_URL": f"http://127.0.0.1:{mport}/v1beta/openai/",
-                       "PPT2SCORM_PEXELS_URL": f"http://127.0.0.1:{mport}/v1", "PPT2SCORM_ALLOW_PRIVATE_FETCH": "1"})
+                       "PPT2SCORM_PEXELS_URL": f"http://127.0.0.1:{mport}/v1", "PPT2SCORM_ALLOW_PRIVATE_FETCH": "tests-only",
+                       "PPT2SCORM_CSP_EXTRA_IMG": f"http://127.0.0.1:{mport}"})   # mock Pexels thumbnails
     for k in ("ANTHROPIC_API_KEY", "ZAI_API_KEY", "DASHSCOPE_API_KEY", "OPENROUTER_API_KEY", "PEXELS_API_KEY"):
         os.environ.pop(k, None)
 
@@ -94,8 +95,9 @@ def main():
         page = b.new_page(viewport={"width": 1280, "height": 900})
         errors = []
         page.on("pageerror", lambda e: errors.append(str(e)))
+        page.on("console", lambda m: errors.append("CSP: " + m.text) if "Content Security Policy" in m.text else None)
         page.goto(base)
-        page.wait_for_function("document.querySelectorAll('#provider option').length > 0")
+        page.wait_for_function("() => document.querySelectorAll('#provider option').length > 0")
 
         # 1. AI conversion with stock photos (key pasted on the upload page)
         page.set_input_files("#file", str(DECK))
@@ -127,6 +129,7 @@ def main():
         # 2. every layout renders in the player
         pp = b.new_page(viewport={"width": 1280, "height": 860})
         pp.on("pageerror", lambda e: errors.append(str(e)))
+        pp.on("console", lambda m: errors.append("CSP: " + m.text) if "Content Security Policy" in m.text else None)
         expect = {1: ".ig-stats .ig-stat", 2: ".sec figure img", 3: ".ig-process .ig-step", 4: ".ig-compare .ig-col.is-good",
                   5: ".ig-check .ig-tick", 8: ".ig-grid .ig-card svg", 9: ".sort-chip", 12: ".ig-pyramid li",
                   13: ".ig-timeline li", 14: ".ig-cycle .ig-node"}
@@ -142,7 +145,7 @@ def main():
 
         # stats count up to the real value
         pp.goto(f"{base}/preview/{jid}/index.html?t=s#screen=1")
-        pp.wait_for_function("document.querySelector('.ig-value').textContent.trim() === '50%'", timeout=5000)
+        pp.wait_for_function("() => document.querySelector('.ig-value').textContent.trim() === '50%'", timeout=5000)
         # credit link on the section photo
         pp.goto(f"{base}/preview/{jid}/index.html?t=c#screen=2")
         cr = pp.locator(".credit a")
@@ -156,7 +159,7 @@ def main():
         for k in range(ticks.count()):
             ticks.nth(k).click()
         assert ticks.nth(0).get_attribute("aria-checked") == "true"
-        pp.wait_for_function("!document.getElementById('btn-next').disabled", timeout=3000)
+        pp.wait_for_function("() => !document.getElementById('btn-next').disabled", timeout=3000)
         r["checklist"] = "Next unlocks after all 4 ticks"
 
         # cycle shows details for the chosen stage
@@ -183,7 +186,7 @@ def main():
         place(terms[0]["text"], terms[0]["bucket"])
         pp.click(".actions button")
         pp.wait_for_selector(".feedback.ok")
-        pp.wait_for_function("!document.getElementById('btn-next').disabled", timeout=3000)
+        pp.wait_for_function("() => !document.getElementById('btn-next').disabled", timeout=3000)
         if SHOTS: pp.screenshot(path=str(SHOTS / "rich_sort_done.png"))
         r["sort"] = "wrong item returned to the list, then all correct"
 
@@ -205,7 +208,7 @@ def main():
         page.locator(".ed-cell-title input").nth(0).fill("Unplug it")
         ico = page.locator(".ed-cell-icon input").nth(0)
         ico.fill("not-an-icon")
-        page.wait_for_function("document.querySelector('.ed-row.has-error, .ed-err:not(:empty)')")
+        page.wait_for_function("() => document.querySelector('.ed-row.has-error, .ed-err:not(:empty)')")
         assert page.locator("#ed-save").is_disabled()
         ico.fill("zap")
         assert page.locator(".ed-cell-icon .ed-ico-chip svg").count() >= 1
@@ -215,7 +218,7 @@ def main():
         assert page.locator("#ed-save").is_disabled()
         assert "required parts" in page.text_content("#ed-form")
         page.select_option("#ed-f-layout", "process")
-        page.wait_for_function("!document.getElementById('ed-save').disabled")
+        page.wait_for_function("() => !document.getElementById('ed-save').disabled")
         if SHOTS: page.screenshot(path=str(SHOTS / "rich_editor_infographic.png"))
 
         # sort: rename a group and move an item to the other group
@@ -233,14 +236,14 @@ def main():
         rows = page.locator("[data-k=parts] .ed-row")
         for k in range(3):
             rows.nth(k).locator(".ed-cell-title input").fill(f"Column {k + 1}")
-        page.wait_for_function("document.getElementById('ed-form').textContent.includes('exactly 2')")
+        page.wait_for_function("() => document.getElementById('ed-form').textContent.includes('exactly 2')")
         page.locator("[data-k=parts] .ed-del").last.click()
         page.fill("#ed-f-title", "Before and after")
         for k, (t, txt, tone) in enumerate((("Before", "Filter blocked\nWater in drum", "bad"), ("After", "Filter clean\nDrains in seconds", "good"))):
             rows.nth(k).locator(".ed-cell-title input").fill(t)
             rows.nth(k).locator(".ed-cell-text textarea").fill(txt)
             rows.nth(k).locator(".ed-cell-tone select").select_option(tone)
-        page.wait_for_function("!document.getElementById('ed-save').disabled")
+        page.wait_for_function("() => !document.getElementById('ed-save').disabled")
 
         # Pexels search in the image picker of the scenario
         page.locator(".ed-item .ed-pick").nth(11).click()   # the new screen went in after the sort, at 10
@@ -252,9 +255,9 @@ def main():
         page.wait_for_selector(".ed-stock-results .ed-thumb")
         if SHOTS: page.screenshot(path=str(SHOTS / "rich_editor_pexels.png"))
         page.locator(".ed-stock-results .ed-thumb").nth(2).click()
-        page.wait_for_function("document.querySelector('[data-k=image]').textContent.includes('Asha 3.jpg')")
+        page.wait_for_function("() => !document.querySelector('.ed-stock') && document.querySelector('[data-k=image]').textContent.includes('Asha 3.jpg')", timeout=15000)
         page.click("#ed-save")
-        page.wait_for_function("document.getElementById('ed-status').textContent.startsWith('Saved') || document.getElementById('ed-status').textContent.startsWith('All changes')", timeout=30000)
+        page.wait_for_function("() => document.getElementById('ed-status').textContent.startsWith('Saved') || document.getElementById('ed-status').textContent.startsWith('All changes')", timeout=30000)
 
         saved = page.request.get(f"{base}/api/jobs/{jid}/course").json()["course"]
         sc = saved["screens"]
@@ -262,6 +265,7 @@ def main():
         assert sc[3]["layout"] == "process" and "value" not in sc[3]["parts"][0]
         assert sc[9]["buckets"][1] == "Check the drain hose first" and sc[9]["terms"][0]["bucket"] == 1
         assert isinstance(sc[9]["terms"][1]["bucket"], int)
+        assert sc[11]["image"].get("credit") == "Photo by Asha 3.jpg on Pexels", (sc[11]["image"], errors)
         assert sc[11]["image"]["credit"] == "Photo by Asha 3.jpg on Pexels" and sc[11]["image"]["credit_url"]
         new = sc[10]
         assert new["type"] == "infographic" and new["layout"] == "comparison" and [x["tone"] for x in new["parts"]] == ["bad", "good"]

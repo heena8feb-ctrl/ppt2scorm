@@ -5,10 +5,15 @@ often and where they're used; logo candidates come from logo images, the header,
 When an AI provider is available, the model picks the best colours, fonts and logo from those candidates
 (it can only choose from what was found, never invent). Without AI the scores decide.
 
-Safety: only http(s); every address (including each redirect) must resolve to a public IP, so a hosted copy of
-the app can't be used to reach internal systems; sizes, counts and time are all capped.
+Safety: only http(s); every address (including each redirect) must resolve to a public IP, and the connection is
+made to that same checked IP (so a site can't swap in a private address between the check and the connection,
+"DNS rebinding"). A hosted copy of the app therefore can't be used to reach internal systems. Sizes, counts and
+time are all capped.
 """
 import colorsys
+import functools
+import http.client
+import ssl
 import ipaddress
 import json
 import os
@@ -38,18 +43,76 @@ class _Redirect(urllib.request.HTTPRedirectHandler):
         return None  # redirects are followed by hand so every hop is checked
 
 
-def _public(host):
-    if os.environ.get("PPT2SCORM_ALLOW_PRIVATE_FETCH") == "1":   # tests only
-        return True
+TEST_FLAG = "PPT2SCORM_ALLOW_PRIVATE_FETCH"
+
+
+def _tests_allow_private():
+    # Lets automated tests reach mock servers on 127.0.0.1. It must be exactly "tests-only" so it can't be
+    # switched on by accident (e.g. "1" or "true" on a server).
+    return os.environ.get(TEST_FLAG) == "tests-only"
+
+
+def _resolve_public(host, port):
+    """Look the host up once and return one public IP to connect to. Raises BrandError otherwise."""
     try:
-        infos = socket.getaddrinfo(host, None)
+        infos = socket.getaddrinfo(host, port, type=socket.SOCK_STREAM)
     except socket.gaierror:
         raise BrandError(f"couldn't find the website {host}. Check the address.") from None
-    for info in infos:
-        ip = ipaddress.ip_address(info[4][0].split("%")[0])
-        if not ip.is_global or ip.is_multicast:
+    ips = [ipaddress.ip_address(i[4][0].split("%")[0]) for i in infos]
+    if not ips:
+        raise BrandError(f"couldn't find the website {host}. Check the address.")
+    if not _tests_allow_private():
+        for ip in ips:
+            if not ip.is_global or ip.is_multicast:
+                raise BrandError("that address points to a private network, which isn't allowed")
+    return str(ips[0])
+
+
+def _public(host):
+    try:
+        _resolve_public(host, 443)
+        return True
+    except BrandError as e:
+        if "private" in str(e):
             return False
-    return True
+        raise
+
+
+class _PinnedHTTP(http.client.HTTPConnection):
+    def __init__(self, host, pinned_ip=None, **kw):
+        super().__init__(host, **kw)
+        self._pinned = pinned_ip
+
+    def connect(self):
+        self.sock = socket.create_connection((self._pinned, self.port), self.timeout, self.source_address)
+
+
+class _PinnedHTTPS(http.client.HTTPSConnection):
+    def __init__(self, host, pinned_ip=None, **kw):
+        super().__init__(host, **kw)
+        self._pinned = pinned_ip
+
+    def connect(self):
+        sock = socket.create_connection((self._pinned, self.port), self.timeout, self.source_address)
+        self.sock = self._context.wrap_socket(sock, server_hostname=self.host)   # certificate still checked for the name
+
+
+class _PinHTTPHandler(urllib.request.HTTPHandler):
+    def __init__(self, ip):
+        super().__init__()
+        self.ip = ip
+
+    def http_open(self, req):
+        return self.do_open(functools.partial(_PinnedHTTP, pinned_ip=self.ip), req)
+
+
+class _PinHTTPSHandler(urllib.request.HTTPSHandler):
+    def __init__(self, ip):
+        super().__init__(context=ssl.create_default_context())
+        self.ip = ip
+
+    def https_open(self, req):
+        return self.do_open(functools.partial(_PinnedHTTPS, pinned_ip=self.ip), req, context=self._context)
 
 
 BROWSER_UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36"
@@ -57,15 +120,25 @@ BROWSER_UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTM
 
 def fetch(url, limit, accept="*/*", ua=UA, headers=None):
     """GET with checks on every hop. Returns (final url, content type, bytes)."""
-    opener = urllib.request.build_opener(_Redirect)
     for _ in range(5):
         parts = urllib.parse.urlsplit(url)
         if parts.scheme not in ("http", "https") or not parts.hostname:
             raise BrandError("use a web address starting with http:// or https://")
         if parts.username or parts.password:
             raise BrandError("web addresses with a user name or password aren't supported")
-        if not _public(parts.hostname):
-            raise BrandError("that address points to a private network, which isn't allowed")
+        try:
+            port = parts.port or (443 if parts.scheme == "https" else 80)
+        except ValueError:
+            raise BrandError("that web address isn't valid") from None
+        ip = _resolve_public(parts.hostname, port)
+        if os.environ.get("PPT2SCORM_FETCH_VIA_PROXY") == "1":
+            # For office networks that only reach the internet through a proxy (laptop use, not public hosting):
+            # the proxy makes the connection, so the IP can't be pinned here.
+            opener = urllib.request.build_opener(_Redirect)
+        else:
+            # No system proxy: the connection must go to the IP that was just checked.
+            opener = urllib.request.build_opener(urllib.request.ProxyHandler({}), _Redirect,
+                                                 _PinHTTPHandler(ip), _PinHTTPSHandler(ip))
         req = urllib.request.Request(url, headers=dict({"User-Agent": ua, "Accept": accept, "Accept-Language": "en"}, **(headers or {})))
         try:
             r = opener.open(req, timeout=TIMEOUT)
