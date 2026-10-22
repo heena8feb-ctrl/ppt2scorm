@@ -455,6 +455,38 @@
     }).catch(function () { S.voPoll = setTimeout(pollRecording, 3000); });
   }
 
+  function brandSection() {
+    var box = el("div", { class: "ed-vo ed-brand", id: "ed-brand" });
+    box.appendChild(el("h4", { text: "Brand" }));
+    var kits = (window.BrandKits && BrandKits.data.kits) || [];
+    var now = S.brandKit ? "This course: " + S.brandKit.name + (S.brandDetected ? " (from the deck)" : "") : "Standard look";
+    box.appendChild(el("p", { class: "help ed-brand-now", text: now }));
+    var sel = el("select", { id: "ed-c-kit" }, [el("option", { value: "", text: "Switch to…" }), el("option", { value: "standard", text: "Standard look" })]
+      .concat(kits.map(function (k) { return el("option", { value: "kit:" + k.id, text: k.name }); })));
+    var apply = el("button", { type: "button", class: "btn", id: "ed-kit-apply", text: "Apply", disabled: "" });
+    sel.addEventListener("change", function () { apply.disabled = !sel.value || S.dirty; });
+    apply.addEventListener("click", function () {
+      status("Applying the brand…");
+      api("POST", "/api/jobs/" + S.id + "/brand", { use: sel.value }).then(function () { S.changed = true; return load(); })
+        .then(function () { select("course"); status("Brand applied. The preview and downloads use it now."); })
+        .catch(function (e) { status(e.message, "error"); });
+    });
+    box.appendChild(el("div", { class: "ed-field" }, [el("label", { class: "ed-label", for: "ed-c-kit", text: "Brand kit" }),
+      el("div", { class: "brand-row" }, [sel, apply]),
+      el("p", { class: "help", text: S.dirty ? "Save your changes before switching brand." : "Kits are made on the upload page (Branding, then New brand kit)." })]));
+    if (S.brandKit && S.brandSaving) {
+      box.appendChild(el("button", { type: "button", class: "bk-link", id: "ed-kit-save", text: "Save this course's brand as a kit", onclick: function () {
+        var name = window.prompt("Name for the new brand kit", S.brandKit.name);
+        if (!name) return;
+        api("POST", "/api/jobs/" + S.id + "/brand", { save_as: name }).then(function (k) {
+          return window.BrandKits ? BrandKits.load().then(function () { return k; }) : k;
+        }).then(function (k) { status("Saved the brand kit \u201c" + k.name + "\u201d. It's now in the Branding list."); renderForm(); })
+          .catch(function (e) { status(e.message, "error"); });
+      } }));
+    }
+    return box;
+  }
+
   function courseForm() {
     var c = S.course, f = el("div");
     f.appendChild(el("h3", { text: "Course settings" }));
@@ -473,11 +505,14 @@
     };
     f.appendChild(el("div", { class: "ed-two" }, [num("mastery_score", "Pass mark (%)", "Learners below this can retry the quiz."),
       num("est_minutes", "Time to complete (minutes)", "Shown on the welcome screen.")]));
-    var pick = el("input", { type: "color", "aria-label": "Pick brand colour" }), hex = el("input", { type: "text", id: "ed-c-brand", maxlength: 7, spellcheck: "false" });
+    f.appendChild(brandSection());
+    var pick = el("input", { type: "color", "aria-label": "Pick main colour" }), hex = el("input", { type: "text", id: "ed-c-brand", maxlength: 7, spellcheck: "false" });
     pick.value = hex.value = S.brand;
     pick.addEventListener("input", function () { hex.value = pick.value; S.brand = pick.value; touch(); });
     hex.addEventListener("input", function () { if (/^#[0-9a-f]{6}$/i.test(hex.value)) { pick.value = hex.value; S.brand = hex.value; touch(); } });
-    f.appendChild(el("div", { class: "ed-field" }, [el("label", { class: "ed-label", for: "ed-c-brand", text: "Brand colour" }), el("div", { class: "colour" }, [pick, hex])]));
+    f.appendChild(el("div", { class: "ed-field" }, [el("label", { class: "ed-label", for: "ed-c-brand", text: "Main colour (this course only)" }),
+      el("div", { class: "colour" }, [pick, hex]),
+      el("p", { class: "help", text: "Overrides the brand kit's main colour for this course. Saved with the course." })]));
     f.appendChild(voiceSection());
     return f;
   }
@@ -560,6 +595,7 @@
     return api("GET", "/api/jobs/" + S.id + "/course").then(function (j) {
       S.course = j.course; S.brand = j.brand; S.version = j.version; S.dirty = false;
       S.needsAudio = j.needs_audio || 0; S.ttsServerKey = !!j.tts_server_key;
+      S.brandKit = j.brand_kit; S.brandDetected = !!j.brand_detected; S.brandSaving = j.brand_saving !== false;
       if (j.recording && !S.recording) { S.recording = true; pollRecording(); }
       S.course.screens.forEach(function (x) { savedNarr.set(x, x.narration || ""); });
       if (typeof S.course.mastery_score !== "number") S.course.mastery_score = 80;

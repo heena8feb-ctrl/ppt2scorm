@@ -9,6 +9,7 @@
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Atkinson+Hyperlegible:wght@400;700&family=Bricolage+Grotesque:opsz,wght@12..96,500;12..96,700&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="/static/editor.css">
+<link rel="stylesheet" href="/static/brandkit.css">
 <style>
 :root {
   --paper: #f3f5f4;
@@ -194,10 +195,23 @@ details.adv .panel { margin-top: 18px; }
             <p class="help" id="mode-help">Redesigns the content into interactions and writes the quiz.</p>
           </div>
           <div class="field">
-            <label for="brand-text">Brand colour</label>
-            <div class="colour">
-              <input type="color" id="brand-pick" value="#1f5eff" aria-label="Pick brand colour">
-              <input type="text" id="brand-text" name="brand" value="#1f5eff" maxlength="7" spellcheck="false">
+            <label for="brandkit">Branding</label>
+            <div class="brand-row">
+              <select id="brandkit" name="brand_kit">
+                <option value="standard">Standard look</option>
+                <option value="deck">Use this deck's branding</option>
+              </select>
+            </div>
+            <div class="brand-actions">
+              <button type="button" class="bk-link" id="bk-new">New brand kit</button>
+              <button type="button" class="bk-link" id="bk-edit" hidden>Edit this kit</button>
+              <label class="bk-link" for="bk-import" id="bk-import-label">Import a kit file</label>
+              <input type="file" id="bk-import" class="bk-hidden" accept=".json,application/json">
+            </div>
+            <p class="help" id="brand-help">Logo, colours and fonts from your brand guidelines.</p>
+            <div class="colour" id="quick-colour">
+              <input type="color" id="brand-pick" value="#1f5eff" aria-label="Pick main colour">
+              <input type="text" id="brand-text" name="brand" value="#1f5eff" maxlength="7" spellcheck="false" aria-label="Main colour">
             </div>
           </div>
           <div class="field">
@@ -340,8 +354,9 @@ details.adv .panel { margin-top: 18px; }
   $("brand-pick").addEventListener("input", function () { $("brand-text").value = this.value; });
   $("brand-text").addEventListener("input", function () { if (/^#[0-9a-f]{6}$/i.test(this.value)) $("brand-pick").value = this.value; });
 
+  window.__chosenFile = function () { return file; };
   fetch("/api/config").then(function (r) { return r.json(); }).then(function (c) {
-    cfg = c;
+    cfg = c; window.__cfg = c;
     $("max-note").textContent = "Up to " + c.max_mb + " MB";
     c.providers.forEach(function (p) {
       var o = document.createElement("option"); o.value = p.id;
@@ -382,7 +397,8 @@ details.adv .panel { margin-top: 18px; }
     fd.append("mode", mode());
     fd.append("provider", $("provider").value || "gemini");
     fd.append("api_key", $("api_key").value.trim());
-    fd.append("brand", brand);
+    fd.append("brand", window.__brandChoice && window.__brandChoice() !== "standard" ? "" : brand);
+    fd.append("brand_kit", window.__brandChoice ? window.__brandChoice() : "standard");
     fd.append("instructions", $("instructions").value);
     markSteps("extract", {});
     $("sub-extract").textContent = ""; $("sub-design").textContent = ""; $("sub-narrate").textContent = "";
@@ -444,6 +460,8 @@ details.adv .panel { margin-top: 18px; }
     $("summary").appendChild(document.createTextNode(": " + j.screens + " screens built by " + j.how + ", including " + parts.join(", ") +
       ". The package is " + j.size_kb + " KB. Click through the preview above, then download it."));
     $("warn").textContent = (j.warnings || []).length ? "Note: " + j.warnings.join("; ") : "";
+    if (j.brand_name) $("summary").appendChild(document.createTextNode(" Branding: " + j.brand_name +
+      (j.brand_detected ? " (detected from the deck; save it as a kit under Review and edit, Course settings)." : ".")));
     setState("done");
   }
 
@@ -466,6 +484,60 @@ details.adv .panel { margin-top: 18px; }
   });
 })();
 </script>
+<script src="/static/brandkit.js"></script>
 <script src="/static/editor.js"></script>
+<script>
+/* Branding field: standard look (with a quick main colour), the deck's own branding, or a saved brand kit. */
+(function () {
+  var $ = function (id) { return document.getElementById(id); };
+  var sel = $("brandkit");
+  function remember(v) { try { localStorage.setItem("ppt2scorm.brandkit", v); } catch (e) {} }
+  function recall() { try { return localStorage.getItem("ppt2scorm.brandkit"); } catch (e) { return null; } }
+  function render(selectId) {
+    var keep = selectId || sel.value || recall() || "standard";
+    sel.querySelectorAll("option.kit, optgroup").forEach(function (o) { o.remove(); });
+    var kits = BrandKits.data.kits;
+    if (kits.length) {
+      var g = document.createElement("optgroup"); g.label = "Your brand kits";
+      kits.forEach(function (k) { var o = document.createElement("option"); o.value = k.id; o.textContent = k.name; o.className = "kit"; g.appendChild(o); });
+      sel.appendChild(g);
+    }
+    sel.value = [].some.call(sel.options, function (o) { return o.value === keep; }) ? keep : "standard";
+    sync();
+  }
+  function sync() {
+    var v = sel.value, kit = BrandKits.get(v), saving = BrandKits.data.saving;
+    $("quick-colour").hidden = v !== "standard";
+    $("bk-edit").hidden = !kit || !saving;
+    $("bk-new").hidden = $("bk-import-label").hidden = !saving;
+    $("brand-help").textContent = v === "standard" ? "Pick a main colour, or create a brand kit with your logo, colours and fonts." :
+      v === "deck" ? "Uses the deck's theme colours, theme fonts and the logo repeated on its slides. You can save it as a kit afterwards." :
+      kit ? kit.name + ": " + (kit.logo_url ? "logo, " : "") + "colours and fonts." : "";
+    remember(v);
+  }
+  sel.addEventListener("change", sync);
+  function ai() {
+    var p = $("provider").value, key = $("api_key").value.trim();
+    var info = (window.__cfg && window.__cfg.providers || []).filter(function (x) { return x.id === p; })[0];
+    return key || (info && info.server_key) ? { provider: p, api_key: key } : {};
+  }
+  function deckFile() { return window.__chosenFile ? window.__chosenFile() : null; }
+  $("bk-new").addEventListener("click", function () {
+    BrandKits.open({ deckFile: deckFile, ai: ai }, function (saved) { render(saved ? saved.id : null); });
+  });
+  $("bk-edit").addEventListener("click", function () {
+    BrandKits.open({ kit: BrandKits.get(sel.value), deckFile: deckFile, ai: ai }, function (saved) { render(saved ? saved.id : "standard"); });
+  });
+  $("bk-import").addEventListener("change", function () {
+    var f = this.files[0]; this.value = ""; if (!f) return;
+    $("brand-help").textContent = "Importing " + f.name + "…";
+    BrandKits.importFile(f).then(function (saved) { render(saved.id); $("brand-help").textContent = "Imported " + saved.name + "."; })
+      .catch(function (e) { $("brand-help").textContent = e.message; });
+  });
+  document.addEventListener("brandkits:changed", function () { render(); });
+  BrandKits.load().catch(function () { sync(); });
+  window.__brandChoice = function () { return sel.value; };
+})();
+</script>
 </body>
 </html>

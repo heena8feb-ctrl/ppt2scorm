@@ -43,7 +43,7 @@ def detect_provider():
     return None
 
 
-def _make_caller(provider, model, api_key=None):
+def _make_caller(provider, model, api_key=None, system=None):
     env, base_url, default_model = PROVIDERS[provider]
     # Optional override, e.g. PPT2SCORM_GEMINI_BASE_URL, for proxies or tests
     if base_url is not None:
@@ -60,7 +60,7 @@ def _make_caller(provider, model, api_key=None):
         client = anthropic.Anthropic(api_key=key, max_retries=0)
 
         def call_once(messages, m):
-            r = client.messages.create(model=m, max_tokens=16000, system=SYSTEM_PROMPT, messages=messages)
+            r = client.messages.create(model=m, max_tokens=16000, system=system or SYSTEM_PROMPT, messages=messages)
             return "".join(b.text for b in r.content if b.type == "text")
     else:
         from openai import OpenAI
@@ -68,7 +68,7 @@ def _make_caller(provider, model, api_key=None):
 
         def call_once(messages, m):
             r = client.chat.completions.create(model=m, max_tokens=16000,
-                                               messages=[{"role": "system", "content": SYSTEM_PROMPT}] + messages)
+                                               messages=[{"role": "system", "content": system or SYSTEM_PROMPT}] + messages)
             return r.choices[0].message.content or ""
 
     import time

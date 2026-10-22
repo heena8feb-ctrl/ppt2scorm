@@ -43,8 +43,10 @@ def _slug(text):
     return re.sub(r"[^a-z0-9]+", "-", text.lower()).strip("-")[:50] or "course"
 
 
-def build_package(course, out_zip, media_dir=None, brand=None, keep_dir=None):
-    """Writes out_zip. If keep_dir is given, the unzipped package is also left there (handy for previewing)."""
+def build_package(course, out_zip, media_dir=None, brand=None, keep_dir=None, brand_dir=None):
+    """Writes out_zip. If keep_dir is given, the unzipped package is also left there (handy for previewing).
+    brand_dir: a brand kit folder (kit.json + logo + fonts) applied to the player. brand: a single main colour
+    for quick use without a kit (ignored when brand_dir is given)."""
     out_zip = Path(out_zip)
     build = Path(keep_dir) if keep_dir else out_zip.with_suffix("")
     if build.exists():
@@ -53,8 +55,23 @@ def build_package(course, out_zip, media_dir=None, brand=None, keep_dir=None):
 
     for name in ("index.html", "player.css", "player.js", "voice.js", "scorm.js"):
         shutil.copy(PLAYER_DIR / name, build / name)
-    if brand:
-        course.setdefault("theme", {})["brand"] = brand
+    from .brand import DEFAULT, css, package_into
+    course.pop("theme", None)
+    if brand_dir and Path(brand_dir, "kit.json").is_file():
+        theme = package_into(build, brand_dir)
+        if brand:   # a one-off main colour on top of the kit (the editor's quick colour)
+            kit = json.loads(Path(brand_dir, "kit.json").read_text(encoding="utf-8"))
+            kit["colors"]["primary"] = brand
+            (build / "brand.css").write_text(css(kit), encoding="utf-8")
+            theme["brand"] = brand
+        course["theme"] = theme
+    else:
+        kit = json.loads(json.dumps(DEFAULT))
+        if brand:
+            kit["colors"]["primary"] = kit["colors"]["accent"] = brand
+            kit["colors"]["background"] = "#f3f5f9"
+        (build / "brand.css").write_text(css(kit), encoding="utf-8")
+        course["theme"] = {"brand": kit["colors"]["primary"], "name": kit["name"]}
     # copy only the images and narration audio the course uses; drop references to files that are missing
     use_audio = (course.get("voiceover") or {}).get("mode") == "audio"
     for scr in course["screens"]:

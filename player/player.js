@@ -263,6 +263,7 @@
       'stroke-dasharray="' + circ + '" stroke-dashoffset="' + circ * (1 - sc.pct / 100) + '"/></svg>' +
       '<div class="val">' + sc.pct + '%</div>';
     var kids = [
+      T.logo ? el("img", { src: T.logo, alt: "", class: "result-logo" }) : null,
       el("p", { class: "eyebrow", text: "Your result" }), ring,
       el("span", { class: "badge " + (pass ? "pass" : "fail"), text: pass ? "Passed" : "Not passed yet" }),
       el("p", { class: "lead", style: "margin-top:16px", text: "You answered " + sc.right + " of " + scored.length + " correctly. " +
@@ -360,7 +361,15 @@
   /* ---------- boot ---------- */
   document.title = C.title;
   document.getElementById("course-title").textContent = C.title;
-  if (C.theme && C.theme.brand) document.documentElement.style.setProperty("--brand", C.theme.brand);
+  var T = C.theme || {};
+  // brand.css carries the full kit; this inline colour only matters for packages built without one
+  if (T.brand && !T.name) document.documentElement.style.setProperty("--brand", T.brand);
+  if (T.logo) {
+    var mark = document.getElementById("brand-mark");
+    var logo = el("img", { src: T.logo, alt: T.logo_alt || T.name || "", class: "brand-logo" });
+    logo.addEventListener("error", function () { logo.replaceWith(mark); });
+    mark.replaceWith(logo);
+  }
 
   SCORM.init();
   var st = SCORM.get("cmi.core.lesson_status");

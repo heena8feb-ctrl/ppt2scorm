@@ -7,6 +7,8 @@ Usage:
   python -m ppt2scorm.cli deck.pptx --draft-only           # stop after AI step so a human can review the JSON
   python -m ppt2scorm.cli deck.pptx --no-ai                # basic conversion without AI
   python -m ppt2scorm.cli deck.pptx --narrate             # add an AI voice-over (needs GEMINI_API_KEY)
+  python -m ppt2scorm.cli deck.pptx --brand-from-website www.company.com --save-brand-kit company.brand.json
+  python -m ppt2scorm.cli deck.pptx --brand-kit company.brand.json   # apply a saved (exported) brand kit
 Options: --out course.zip  --brand "#e4002b"  --provider claude|gemini|openrouter|glm|qwen  --model <id>  --preview-dir ./preview
 """
 import argparse
@@ -16,7 +18,7 @@ import sys
 import tempfile
 from pathlib import Path
 
-from .ai_redesign import PROVIDERS
+from .ai_redesign import PROVIDERS, detect_provider
 from .narration import DEFAULT_VOICE, VOICES
 from .pipeline import add_narration, build_package, design_course, extract, screen_summary
 from .schema import validate
@@ -36,6 +38,10 @@ def main(argv=None):
     ap.add_argument("--narrate", action="store_true", help="record an AI voice-over for every screen (Gemini text-to-speech)")
     ap.add_argument("--device-voice", action="store_true", help="no recording: the learner's device reads each screen aloud")
     ap.add_argument("--voice", default=DEFAULT_VOICE, choices=list(VOICES), help="Gemini voice for --narrate")
+    ap.add_argument("--brand-kit", help="apply a brand kit file (exported from the web app, or made with --save-brand-kit)")
+    ap.add_argument("--brand-from-deck", action="store_true", help="use the deck's theme colours, fonts and repeated logo")
+    ap.add_argument("--brand-from-website", metavar="URL", help="detect logo, colours and fonts from a company website")
+    ap.add_argument("--save-brand-kit", metavar="FILE", help="also save the brand kit used to this file, to reuse later")
     ap.add_argument("--preview-dir", help="also keep the unzipped package here for previewing in a browser")
     a = ap.parse_args(argv)
 
@@ -75,8 +81,34 @@ def main(argv=None):
             print("\n    warning:", w)
         print()
 
+    kit_dir = None
+    if a.brand_kit or a.brand_from_deck or a.brand_from_website:
+        from . import brand as brandkit
+        kit_dir = Path(tempfile.mkdtemp(prefix="ppt2scorm_brand_"))
+        if a.brand_kit:
+            kit, logo, fonts = brandkit.parse_export(Path(a.brand_kit).read_bytes())
+            notes, how = [], f"brand kit file {a.brand_kit}"
+        elif a.brand_from_website:
+            from .website import brand_from_website
+            print(f"    reading {a.brand_from_website} for logo, colours and fonts ...")
+            prov = a.provider or detect_provider()
+            kit, logo, fonts, notes, how = brand_from_website(a.brand_from_website, prov, None, a.model)
+        else:
+            kit, logo, notes = brandkit.from_deck(deck_path)
+            fonts, how = {}, "the deck's theme"
+        brandkit.write_kit_dir(kit_dir, kit, logo, fonts)
+        f = kit["fonts"]
+        print(f"    brand: {kit['name']} from {how} - main {kit['colors']['primary']}, accent {kit['colors']['accent']}, "
+              f"logo {'yes' if logo else 'no'}, fonts {f['heading'].get('family') or f['heading'].get('stack')} / "
+              f"{f['body'].get('family') or f['body'].get('stack')}")
+        for n in notes:
+            print("    note:", n)
+        if a.save_brand_kit:
+            Path(a.save_brand_kit).write_text(json.dumps(brandkit.export_kit(kit_dir)), encoding="utf-8")
+            print(f"    saved the brand kit to {a.save_brand_kit}")
+
     print("3/3 Packaging SCORM 1.2 ...")
-    build_package(course, out, media_dir=media, brand=a.brand, keep_dir=a.preview_dir)
+    build_package(course, out, media_dir=media, brand=a.brand, keep_dir=a.preview_dir, brand_dir=kit_dir)
     kinds = screen_summary(course)
     print(f"    {out}  ({out.stat().st_size // 1024} KB) - screens: " + ", ".join(f"{v} {k}" for k, v in kinds.items()))
     return 0

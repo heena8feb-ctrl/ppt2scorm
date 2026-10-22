@@ -96,6 +96,35 @@ Turn it on with **Narration** in the web app, or `--narrate` (AI voice) or `--de
 AI voice needs a Gemini API key. MP3 encoding uses `lameenc`, installed by `requirements.txt`, or `ffmpeg`;
 without either, WAV files are used, which are about 6x larger.
 
+### Brand kits
+
+Courses can carry your brand: logo, colours, fonts and corner style.
+
+![The brand kit dialog filled in from a company website, with a live preview](docs/brand-kit.png)
+
+- **From a website:** type the company's web address. The tool reads the home page, its stylesheets and
+  icons to find the logo, the brand colours (ranked by how and where they're used, skipping warning reds and
+  success greens) and the fonts. With an AI key, the AI picks the best match from what was found and can't
+  invent values. Free Google Fonts used by the site are downloaded and bundled.
+- **From the deck:** "Use this deck's branding" reads the PowerPoint theme colours, theme fonts and the
+  logo repeated on the slides.
+- **By hand, or both:** every detected value can be changed in the kit dialog, with a live preview and
+  readability warnings. Upload your brand font files (WOFF2, WOFF, TTF or OTF); they're bundled inside each
+  SCORM package, so nothing loads from the internet and LMS or firewall rules can't break the look.
+- **Reuse and share:** kits are saved on your computer in `~/.ppt2scorm/brands` (change this with
+  `PPT2SCORM_BRANDS`). They can be exported as one `.brand.json` file, with logo and fonts inside, and
+  imported by a colleague. In the editor you can switch a course to another kit or save a course's
+  detected branding as a kit.
+- Text stays readable: if a brand colour is too light or dark for text or buttons, the course uses a
+  readable shade automatically.
+
+Command line: `--brand-from-website www.company.com`, `--brand-from-deck`, `--brand-kit company.brand.json`,
+and `--save-brand-kit company.brand.json` to keep a detected kit.
+
+Hosting for the public? Website reading only fetches public addresses, never internal servers. Brand kits are
+shared by everyone using the same server, which suits a team; set `PPT2SCORM_BRAND_SAVING=0` on a public
+site, and kits can still be used for one course at a time.
+
 ## Quick start (command line, Windows)
 
 1. Install Python 3.10 or newer from python.org and tick **Add Python to PATH**.
@@ -184,7 +213,7 @@ Learners must complete each interaction before **Next** unlocks. If they fail th
 
 ## Testing before you roll out
 
-1. Build the sample with `python -m ppt2scorm.cli samples/data_privacy_essentials.pptx --course-json samples/data_privacy_essentials.course.json --preview-dir out/preview --out out/sample.zip`, then run `python tests/test_playthrough.py`, `python tests/test_web.py`, `python tests/test_editor.py`, `python tests/test_visuals.py`, `python tests/test_retry.py` and `python tests/test_narration.py` (requires `pip install -r requirements-dev.txt && playwright install chromium`).
+1. Build the sample with `python -m ppt2scorm.cli samples/data_privacy_essentials.pptx --course-json samples/data_privacy_essentials.course.json --preview-dir out/preview --out out/sample.zip`, then run `python tests/test_playthrough.py`, `python tests/test_web.py`, `python tests/test_editor.py`, `python tests/test_visuals.py`, `python tests/test_retry.py`, `python tests/test_narration.py` and `python tests/test_branding.py` (requires `pip install -r requirements-dev.txt && playwright install chromium`).
 2. Upload the zip to **SCORM Cloud** (Rustici's free account). It is the standard compatibility check.
 3. Upload to your own LMS's test instance and do one full pass and one deliberate fail.
 
