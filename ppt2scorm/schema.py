@@ -13,6 +13,10 @@ Screen types (field "type"):
   scenario   title, situation, choices[{text, correct(bool), feedback}]
   mcq        question, options[str], correct(int), explanation, scored(bool)
   summary    title, points[str]
+  section    title, subtitle?, icon?                                  (module divider)
+  infographic title, layout, parts[{title, text?, icon?, value?, tone?}], intro?
+             layout: process | timeline | stats | comparison | cycle | pyramid | grid | checklist
+  sort       title, instruction?, buckets[str] (2-3), terms[{text, bucket(int)}]  (sort items into categories)
 Optional on intro, content, flipcards, reveal, scenario and mcq screens:
   image      {"src": "media/<file>", "alt": "what the image shows"}
 Optional on every screen:
@@ -32,18 +36,74 @@ SCREEN_FIELDS = {
     "scenario": ["title", "situation", "choices"],
     "mcq": ["question", "options", "correct", "explanation"],
     "summary": ["title", "points"],
+    "section": ["title"],
+    "infographic": ["title", "layout", "parts"],
+    "sort": ["title", "buckets", "terms"],
 }
+LAYOUTS = ("process", "timeline", "stats", "comparison", "cycle", "pyramid", "grid", "checklist")
 
 
 class CourseError(ValueError):
     pass
 
 
-IMAGE_TYPES = {"intro", "content", "flipcards", "reveal", "scenario", "mcq"}
+IMAGE_TYPES = {"intro", "content", "flipcards", "reveal", "scenario", "mcq", "section"}
+ICON_SCREENS = {"content", "section", "flipcards", "reveal", "scenario", "summary", "intro"}
+CREDIT_URL = re.compile(r"^https://[^\s\"<>]{1,400}$")
 IMAGE_SRC = re.compile(r"^media/[A-Za-z0-9_.-]{1,120}$")
 AUDIO_SRC = re.compile(r"^media/narr_[0-9a-f]{12}\.(mp3|wav)$")
 VOICEOVER_MODES = {"off", "audio", "device"}
 MAX_NARRATION = 1500
+
+
+def _check_rich(i, s, strict):
+    """Section / infographic / sort rules, plus icons. Lenient mode repairs small slips; strict mode reports them."""
+    from .icons import valid as icon_ok
+    t = s.get("type")
+    if "icon" in s and not icon_ok(s["icon"]):
+        if strict:
+            raise CourseError(f"screen {i}: pick an icon from the list")
+        s.pop("icon")
+    if t == "infographic":
+        if s.get("layout") not in LAYOUTS:
+            if strict:
+                raise CourseError(f"screen {i}: choose an infographic layout")
+            s["layout"] = "grid"
+        parts = s.get("parts")
+        if not isinstance(parts, list) or not 2 <= len(parts) <= 8:
+            raise CourseError(f"screen {i}: an infographic needs 2 to 8 parts")
+        for n, part in enumerate(parts, 1):
+            if not isinstance(part, dict) or not isinstance(part.get("title"), str) or not part["title"].strip():
+                raise CourseError(f"screen {i}, part {n}: give it a title")
+            for k in ("text", "value", "icon", "tone"):
+                if k in part and not isinstance(part[k], str):
+                    raise CourseError(f"screen {i}, part {n}: '{k}' must be text")
+            if part.get("icon") and not icon_ok(part["icon"]):
+                if strict:
+                    raise CourseError(f"screen {i}, part {n}: pick an icon from the list")
+                part.pop("icon")
+            if part.get("tone") not in (None, "", "good", "bad"):
+                if strict:
+                    raise CourseError(f"screen {i}, part {n}: tone must be good or bad")
+                part.pop("tone")
+        if s["layout"] == "comparison" and len(parts) != 2:
+            raise CourseError(f"screen {i}: a comparison has exactly 2 columns")
+        if s["layout"] == "stats" and not all((p.get("value") or "").strip() for p in parts):
+            raise CourseError(f"screen {i}: every stat needs a value, such as 50% or 3x")
+    elif t == "sort":
+        b = s.get("buckets")
+        if not isinstance(b, list) or not 2 <= len(b) <= 3 or not all(isinstance(x, str) and x.strip() for x in b):
+            raise CourseError(f"screen {i}: a sort activity needs 2 or 3 named categories")
+        terms = s.get("terms")
+        if not isinstance(terms, list) or len(terms) < 3:
+            raise CourseError(f"screen {i}: a sort activity needs at least 3 items to sort")
+        for n, term in enumerate(terms, 1):
+            if not isinstance(term, dict) or not isinstance(term.get("text"), str) or not term["text"].strip():
+                raise CourseError(f"screen {i}, item {n}: the item needs text")
+            if not (isinstance(term.get("bucket"), int) and not isinstance(term.get("bucket"), bool) and 0 <= term["bucket"] < len(b)):
+                raise CourseError(f"screen {i}, item {n}: choose its correct category")
+        if len(terms) > 12:
+            raise CourseError(f"screen {i}: keep a sort activity to 12 items")
 
 
 def _check_audio(i, s):
@@ -94,6 +154,10 @@ def _check_image(i, s):
         raise CourseError(f"screen {i}: the image must point to a file in media/")
     if not isinstance(img.get("alt", ""), str) or len(img.get("alt", "")) > 300:
         raise CourseError(f"screen {i}: image description must be text under 300 characters")
+    if not isinstance(img.get("credit", ""), str) or len(img.get("credit", "")) > 160:
+        raise CourseError(f"screen {i}: the photo credit isn't valid")
+    if img.get("credit_url") is not None and not (isinstance(img["credit_url"], str) and CREDIT_URL.match(img["credit_url"])):
+        raise CourseError(f"screen {i}: the photo credit link isn't valid")
 
 
 def resolve_images(course, available):
@@ -117,13 +181,20 @@ def resolve_images(course, available):
         if not alt and isinstance(available, dict):
             alt = available[src].get("alt", "")
         s["image"] = {"src": src, "alt": (alt or s.get("title") or s.get("question") or "")[:300]}
+        src_meta = available.get(src, {}) if isinstance(available, dict) else {}
+        credit = (img.get("credit") if isinstance(img, dict) else None) or src_meta.get("credit")
+        if credit:
+            s["image"]["credit"] = str(credit)[:160]
+            url = (img.get("credit_url") if isinstance(img, dict) else None) or src_meta.get("credit_url")
+            if isinstance(url, str) and CREDIT_URL.match(url):
+                s["image"]["credit_url"] = url
         used.add(src)
     return warnings
 
 
 # Field shapes, used to check hand-edited courses (the web editor) before they reach the player.
-TEXT_FIELDS = {"title", "subtitle", "body", "callout", "instruction", "situation", "question", "explanation"}
-TEXT_LISTS = {"objectives", "bullets", "points", "options"}
+TEXT_FIELDS = {"title", "subtitle", "body", "callout", "instruction", "situation", "question", "explanation", "intro", "layout"}
+TEXT_LISTS = {"objectives", "bullets", "points", "options", "buckets"}
 RECORD_LISTS = {"cards": ("front", "back"), "items": ("label", "detail"), "pairs": ("left", "right"),
                 "choices": ("text", "feedback")}
 MAX_TEXT = 4000
@@ -167,6 +238,7 @@ def check_types(course):
                 raise CourseError(f"{where}: remove or fill in the empty line")
         _check_image(i, s)
         _check_audio(i, s)
+        _check_rich(i, s, True)
         if s.get("type") == "mcq" and not (isinstance(s.get("correct"), int) and not isinstance(s.get("correct"), bool)):
             raise CourseError(f"screen {i}: pick the correct answer")
     return validate(course)
@@ -201,6 +273,7 @@ def validate(course):
         if t == "match" and len(s["pairs"]) < 2:
             raise CourseError(f"screen {i}: match needs at least 2 pairs")
         _tidy_image(i, s, warnings)
+        _check_rich(i, s, False)
         if "narration" in s and not isinstance(s["narration"], str):
             s.pop("narration")
         elif isinstance(s.get("narration"), str):

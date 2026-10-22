@@ -31,6 +31,7 @@ from ppt2scorm.extract import _save_image
 from ppt2scorm import brand as brandkit
 from ppt2scorm.brand import BrandError
 from ppt2scorm.website import brand_from_website
+from ppt2scorm.photos import PhotoError, add_photos, download as photo_download, search as photo_search
 
 DATA = Path(os.environ.get("PPT2SCORM_DATA") or tempfile.mkdtemp(prefix="ppt2scorm_web_"))
 JOBS_DIR = DATA / "jobs"
@@ -55,7 +56,7 @@ jobs = {}
 usage = {}  # (ip, day) -> count of AI conversions on the server's key
 lock = threading.Lock()
 
-STEPS = ["upload", "extract", "design", "narrate", "package", "done"]
+STEPS = ["upload", "extract", "design", "photos", "narrate", "package", "done"]
 
 
 def _server_key(provider):
@@ -103,7 +104,8 @@ def _friendly(err):
     return msg[:300]
 
 
-def _run(jid, use_ai, provider, api_key, brand, instructions, narration="off", voice=None, tts_key=None, kit_choice=""):
+def _run(jid, use_ai, provider, api_key, brand, instructions, narration="off", voice=None, tts_key=None, kit_choice="",
+         photo_key=None):
     folder = JOBS_DIR / jid
     try:
         _update(jid, step="extract")
@@ -119,6 +121,16 @@ def _run(jid, use_ai, provider, api_key, brand, instructions, narration="off", v
         course, warnings, how = design_course(deck, use_ai=use_ai, provider=provider, api_key=api_key,
                                               instructions=instructions, log=lambda m: None)
         api_key = None  # not kept beyond this point
+        if photo_key:
+            _update(jid, step="photos", photo_done=0, photo_total=0)
+            added, pw = add_photos(course, folder / "media", photo_key,
+                                   progress=lambda k, n: _update(jid, photo_done=k, photo_total=n))
+            photo_key = None
+            warnings = warnings + pw
+            if added:
+                media = json.loads((folder / "media.json").read_text(encoding="utf-8")) + added
+                (folder / "media.json").write_text(json.dumps(media, ensure_ascii=False), encoding="utf-8")
+                _update(jid, photos=len(added))
         if narration == "audio":
             _update(jid, step="narrate", narr_done=0, narr_total=0)
         warnings = warnings + add_narration(course, folder / "media", mode=narration, voice=voice, api_key=tts_key,
@@ -154,6 +166,13 @@ def index():
     return FileResponse(STATIC / "index.html")
 
 
+@app.get("/player/icons.js")
+def player_icons():
+    from ppt2scorm.package import PLAYER_DIR
+    return FileResponse(PLAYER_DIR / "icons.js", media_type="text/javascript",
+                        headers={"Cache-Control": "public, max-age=86400"})
+
+
 @app.get("/api/config")
 def config():
     return {
@@ -165,6 +184,7 @@ def config():
         "voices": [{"id": v, "label": f"{v} ({d.lower()})"} for v, d in VOICES.items()],
         "default_voice": DEFAULT_VOICE,
         "tts_server_key": _server_key("gemini"),
+        "photos_server_key": bool(os.environ.get("PEXELS_API_KEY")),
     }
 
 
@@ -172,8 +192,13 @@ def config():
 async def convert(request: Request, file: UploadFile = File(...), mode: str = Form("ai"),
                   provider: str = Form("gemini"), api_key: str = Form(""), brand: str = Form(""),
                   instructions: str = Form(""), narration: str = Form("off"), voice: str = Form(""),
-                  brand_kit: str = Form("")):
+                  brand_kit: str = Form(""), photos: str = Form("off"), pexels_key: str = Form("")):
     _cleanup()
+    photo_key = None
+    if photos == "pexels":
+        photo_key = pexels_key.strip() or os.environ.get("PEXELS_API_KEY")
+        if not photo_key:
+            raise HTTPException(400, "Stock photos need a free Pexels API key. Paste one, or turn photos off.")
     if brand_kit not in ("", "standard", "deck"):
         try:
             BRANDS.get(brand_kit)
@@ -232,7 +257,7 @@ async def convert(request: Request, file: UploadFile = File(...), mode: str = Fo
                      "filename": Path(file.filename).name, "mode": mode, "brand": brand or None,
                      "provider": PROVIDER_LABELS[provider] if use_ai else None}
     pool.submit(_run, jid, use_ai, provider if use_ai else None, api_key or None, brand or None, instructions,
-                narration, voice, tts_key, brand_kit)
+                narration, voice, tts_key, brand_kit, photo_key)
     return {"job_id": jid}
 
 
@@ -473,6 +498,44 @@ async def upload_media(jid: str, file: UploadFile = File(...), alt: str = Form("
     name, w, h = res
     entry = {"src": f"media/{name}", "w": w, "h": h, "alt": alt.strip()[:300], "kind": "upload",
              "slide": None, "slide_title": file.filename[:80] if file.filename else "Uploaded image"}
+    with _edit_lock(jid):
+        media = [m for m in _media(jid) if m["src"] != entry["src"]] + [entry]
+        (JOBS_DIR / jid / "media.json").write_text(json.dumps(media, ensure_ascii=False), encoding="utf-8")
+    return entry
+
+
+# ---------- stock photos in the editor ----------
+def _photo_key(body):
+    key = (body.get("api_key") or "").strip() if isinstance(body, dict) else ""
+    key = key or os.environ.get("PEXELS_API_KEY")
+    if not key:
+        raise HTTPException(400, "Paste a free Pexels API key to search photos.")
+    return key
+
+
+@app.post("/api/jobs/{jid}/photos/search")
+async def editor_photo_search(jid: str, request: Request):
+    _ready(jid)
+    body = await request.json()
+    import asyncio
+    try:
+        results = await asyncio.get_running_loop().run_in_executor(pool, lambda: photo_search(body.get("query", ""), _photo_key(body), 12))
+    except PhotoError as e:
+        raise HTTPException(e.status_code if e.status_code in (401, 403, 429) else 502, str(e))
+    return {"photos": results}
+
+
+@app.post("/api/jobs/{jid}/photos/add")
+async def editor_photo_add(jid: str, request: Request):
+    _ready(jid)
+    body = await request.json()
+    photo = body.get("photo") if isinstance(body.get("photo"), dict) else {}
+    import asyncio
+    try:
+        entry = await asyncio.get_running_loop().run_in_executor(pool, lambda: photo_download(photo, JOBS_DIR / jid / "media"))
+    except PhotoError as e:
+        raise HTTPException(400, str(e))
+    entry.update(slide=None, slide_title="Pexels: " + photo.get("photographer", "")[:60])
     with _edit_lock(jid):
         media = [m for m in _media(jid) if m["src"] != entry["src"]] + [entry]
         (JOBS_DIR / jid / "media.json").write_text(json.dumps(media, ensure_ascii=False), encoding="utf-8")

@@ -4,8 +4,10 @@ Turn a PowerPoint deck into an **interactive SCORM 1.2 course** that can be uplo
 (SuccessFactors Learning, Cornerstone, Moodle, Docebo, TalentLMS, etc.).
 
 The tool doesn't just copy the slides. It uses an LLM (Gemini, Claude, GLM, Qwen or any OpenRouter model)
-to **redesign** the deck into short screens with flip cards, click-to-reveal lists, matching exercises,
-branching scenarios, and a scored final quiz.
+to **redesign** the deck the way an instructional design team would: a hook, short modules with dividers,
+infographics (process, timeline, stats, do/don't comparison, cycle, pyramid, icon grid, checklist), icons on
+every screen, optional stock photos, flip cards, click-to-reveal lists, sorting and matching activities,
+branching scenarios, practice questions along the way and a scored final quiz.
 
 ![Course player screens: intro, flip cards, branching scenario and quiz result](docs/screenshots.png)
 
@@ -125,6 +127,40 @@ Hosting for the public? Website reading only fetches public addresses, never int
 shared by everyone using the same server, which suits a team; set `PPT2SCORM_BRAND_SAVING=0` on a public
 site, and kits can still be used for one course at a time.
 
+### Infographics, icons and photos
+
+The AI is briefed like a senior learning designer: every screen must carry something visual, no two
+neighbouring screens may look the same, and each idea gets the visual that fits its shape:
+
+| The content is… | It becomes |
+|---|---|
+| steps in order | **Process** with numbered, icon badges |
+| phases, dates, before/during/after | **Timeline** |
+| a few key numbers | **Stats** that count up |
+| right way vs wrong way | **Comparison** (green/red columns) |
+| a repeating loop | **Cycle** learners click through |
+| priorities or a hierarchy | **Pyramid** |
+| 3–6 parallel ideas | **Icon grid** |
+| things to check before acting | **Checklist** learners tick off |
+| categories to tell apart | **Sort activity** (drag or tap into 2–3 groups) |
+
+Longer courses are split into 2–4 modules with full-width **module dividers**, and short unscored practice
+questions are spread through the course before the final quiz.
+
+![Stats, process, comparison and cycle infographics in the course player](docs/infographics.png)
+
+**Icons** come from the open-source [Lucide](https://lucide.dev) set (ISC licence, included in the package),
+so they work offline in any LMS. Basic mode (no AI) also picks infographics and icons from the slide text.
+
+**Stock photos (optional).** Choose *Photos: Stock photos* on the upload page and paste a free
+[Pexels API key](https://www.pexels.com/api/) (or set `PEXELS_API_KEY` on the server). The AI suggests a
+search for the moments that deserve a real photo (module dividers, scenarios, the welcome screen), and each
+photo is credited to its photographer on the screen. In the editor's image picker you can search Pexels
+yourself and swap any photo. On the command line, add `--photos` with `PEXELS_API_KEY` set.
+
+In the editor you can add module dividers, infographics and sort activities, switch an infographic's layout,
+edit each part (with an icon picker), and choose which group each sort item belongs in.
+
 ## Quick start (command line, Windows)
 
 1. Install Python 3.10 or newer from python.org and tick **Add Python to PATH**.
@@ -191,7 +227,10 @@ python -m ppt2scorm.cli my_deck.pptx --preview-dir preview
 |---|---|
 | `ppt2scorm/extract.py` | Reads titles, bullets, tables, images and **speaker notes** from the .pptx (python-pptx). Optional slide-to-PNG rendering via LibreOffice. |
 | `ppt2scorm/ai_redesign.py` | The instructional-design prompt sent to the LLM, provider settings, JSON validation with automatic repair retries, and the no-AI fallback. |
-| `ppt2scorm/schema.py` | The course JSON contract: `intro`, `content`, `flipcards`, `reveal`, `match`, `scenario`, `summary`, `mcq`. |
+| `ppt2scorm/schema.py` | The course JSON contract: `intro`, `section`, `content`, `infographic`, `flipcards`, `reveal`, `match`, `sort`, `scenario`, `summary`, `mcq`. |
+| `ppt2scorm/icons.py`, `player/icons.js` | The bundled Lucide icon set and keyword matching for Basic mode. Rebuild with `tools/build_icons.py`. |
+| `ppt2scorm/photos.py` | Pexels search and download, with photographer credits. |
+| `player/rich.js` | Module dividers, the eight infographic layouts and the sort activity. |
 | `ppt2scorm/pipeline.py` | The shared conversion steps used by both the command line and the web app. |
 | `web/app.py` | FastAPI web app: upload, background conversion with progress, preview, downloads, limits and cleanup. |
 | `web/static/index.html` | The web app's single page. |
@@ -213,7 +252,7 @@ Learners must complete each interaction before **Next** unlocks. If they fail th
 
 ## Testing before you roll out
 
-1. Build the sample with `python -m ppt2scorm.cli samples/data_privacy_essentials.pptx --course-json samples/data_privacy_essentials.course.json --preview-dir out/preview --out out/sample.zip`, then run `python tests/test_playthrough.py`, `python tests/test_web.py`, `python tests/test_editor.py`, `python tests/test_visuals.py`, `python tests/test_retry.py`, `python tests/test_narration.py` and `python tests/test_branding.py` (requires `pip install -r requirements-dev.txt && playwright install chromium`).
+1. Build the sample with `python -m ppt2scorm.cli samples/data_privacy_essentials.pptx --course-json samples/data_privacy_essentials.course.json --preview-dir out/preview --out out/sample.zip`, then run `python tests/test_playthrough.py`, `python tests/test_web.py`, `python tests/test_editor.py`, `python tests/test_visuals.py`, `python tests/test_retry.py`, `python tests/test_narration.py`, `python tests/test_branding.py` and `python tests/test_rich.py` (requires `pip install -r requirements-dev.txt && playwright install chromium`).
 2. Upload the zip to **SCORM Cloud** (Rustici's free account). It is the standard compatibility check.
 3. Upload to your own LMS's test instance and do one full pass and one deliberate fail.
 
@@ -224,4 +263,7 @@ Learners must complete each interaction before **Next** unlocks. If they fail th
 
 ## License
 
-MIT. See [LICENSE](LICENSE).
+MIT. See [LICENSE](LICENSE). Icons: Lucide, ISC licence (`player/ICONS_LICENSE.txt`, shipped in every package).
+Stock photos are free to use under the [Pexels licence](https://www.pexels.com/license/).
+`samples/drain_filter_showcase.course.json` shows every screen type; package it with
+`python -m ppt2scorm.cli samples/visuals_test.pptx --course-json samples/drain_filter_showcase.course.json`.

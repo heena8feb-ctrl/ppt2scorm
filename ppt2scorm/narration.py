@@ -64,6 +64,18 @@ def default_script(screen, notes=None):
         parts = ["Let's recap."] + [_sentence(p) for p in screen.get("points", [])[:5]]
     elif t == "mcq":
         parts = [screen.get("question", "")]
+    elif t == "section":
+        parts = [_sentence(screen.get("title", "")), _sentence(screen.get("subtitle", ""))]
+    elif t == "infographic":
+        items = screen.get("parts", [])
+        if screen.get("layout") == "stats":
+            parts = [_sentence(screen.get("title", ""))] + [_sentence(f"{p.get('value', '')} {p.get('title', '')}") for p in items[:4]]
+        elif screen.get("layout") == "checklist":
+            parts = [_sentence(screen.get("title", "")), "Tick each item as you go."]
+        else:
+            parts = [_sentence(screen.get("title", "")), _sentence(screen.get("intro", ""))] + [_sentence(p.get("title", "")) for p in items[:6]]
+    elif t == "sort":
+        parts = [_sentence(screen.get("title", "")), _sentence(screen.get("instruction", "") or "Sort each item into the right group.")]
     return " ".join(p.strip() for p in parts if p and p.strip())[:MAX_SCRIPT]
 
 

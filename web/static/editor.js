@@ -13,18 +13,21 @@
       { k: "image", label: "Image", kind: "image" }] },
     content: { label: "Content", fields: [
       { k: "title", label: "Heading", kind: "text", req: true },
+      { k: "icon", label: "Icon", kind: "icon" },
       { k: "body", label: "Main text", kind: "textarea", req: true, help: "Keep it short: about 60 words reads well on one screen." },
       { k: "bullets", label: "Bullet points", kind: "list", add: "Add a bullet point" },
       { k: "callout", label: "Key message", kind: "text", help: "Optional. Shown in a highlighted box." },
       { k: "image", label: "Image", kind: "image" }] },
     flipcards: { label: "Flip cards", fields: [
       { k: "title", label: "Heading", kind: "text", req: true },
+      { k: "icon", label: "Icon", kind: "icon" },
       { k: "instruction", label: "Instruction", kind: "text" },
       { k: "cards", label: "Cards", kind: "records", req: true, min: 1, two: true, add: "Add a card",
         cells: [{ k: "front", label: "Front" }, { k: "back", label: "Back", area: true }] },
       { k: "image", label: "Image", kind: "image" }] },
     reveal: { label: "Click to reveal", fields: [
       { k: "title", label: "Heading", kind: "text", req: true },
+      { k: "icon", label: "Icon", kind: "icon" },
       { k: "instruction", label: "Instruction", kind: "text" },
       { k: "items", label: "Items", kind: "records", req: true, min: 1, add: "Add an item",
         cells: [{ k: "label", label: "Label" }, { k: "detail", label: "Shown when opened", area: true }] },
@@ -37,6 +40,7 @@
         cells: [{ k: "left", label: "Item" }, { k: "right", label: "Matches" }] }] },
     scenario: { label: "Scenario", fields: [
       { k: "title", label: "Heading", kind: "text", req: true },
+      { k: "icon", label: "Icon", kind: "icon" },
       { k: "situation", label: "Situation", kind: "textarea", req: true },
       { k: "choices", label: "Choices", kind: "records", req: true, min: 2, correct: "radio", add: "Add a choice",
         help: "Mark the best response. Learners keep trying until they find it.",
@@ -44,7 +48,37 @@
       { k: "image", label: "Image", kind: "image" }] },
     summary: { label: "Recap", fields: [
       { k: "title", label: "Heading", kind: "text", req: true },
+      { k: "icon", label: "Icon", kind: "icon" },
       { k: "points", label: "Key points", kind: "list", req: true, add: "Add a point" }] },
+    section: { label: "Module divider", fields: [
+      { k: "title", label: "Module title", kind: "text", req: true },
+      { k: "subtitle", label: "One-line promise", kind: "text", help: "What the learner gets from this module." },
+      { k: "icon", label: "Icon", kind: "icon", help: "Shown large on the divider (a photo replaces it)." },
+      { k: "image", label: "Photo", kind: "image" }] },
+    infographic: { label: "Infographic", fields: [
+      { k: "title", label: "Heading", kind: "text", req: true },
+      { k: "intro", label: "Intro line", kind: "text" },
+      { k: "layout", label: "Layout", kind: "select", req: true, options: [["process", "Process: numbered steps"], ["timeline", "Timeline: phases or dates"],
+        ["stats", "Stats: big numbers"], ["comparison", "Comparison: do vs don't (2 columns)"], ["cycle", "Cycle: a repeating loop"],
+        ["pyramid", "Pyramid: most important at the top"], ["grid", "Grid: key ideas with icons"], ["checklist", "Checklist: learners tick each item"]] },
+      { k: "parts", label: "Parts", kind: "records", req: true, min: 2, max: 8, add: "Add a part",
+        help: "2 to 8 parts. Short is better: a title of a few words and one line of text.",
+        cells: [
+          { k: "value", label: "Number or label", opt: true, show: function (x) { return x.layout === "stats" || x.layout === "timeline"; },
+            reqIf: function (x) { return x.layout === "stats"; }, placeholder: "e.g. 50% or Day 1" },
+          { k: "title", label: "Title" },
+          { k: "text", label: "Text", area: true, opt: true, labelFor: function (x) { return x.layout === "comparison" ? "Points (one per line)" : "Text"; } },
+          { k: "icon", label: "Icon", kind: "icon", opt: true },
+          { k: "tone", label: "Column style", kind: "select", opt: true, show: function (x) { return x.layout === "comparison"; },
+            options: [["", "Neutral"], ["good", "Right way (green)"], ["bad", "Wrong way (red)"]] }] }] },
+    sort: { label: "Sort activity", fields: [
+      { k: "title", label: "Heading", kind: "text", req: true },
+      { k: "instruction", label: "Instruction", kind: "text" },
+      { k: "buckets", label: "Groups (2 or 3)", kind: "list", req: true, add: "Add a group" },
+      { k: "terms", label: "Items to sort", kind: "records", req: true, min: 3, max: 12, add: "Add an item", two: true,
+        cells: [{ k: "text", label: "Item" },
+          { k: "bucket", label: "Belongs in", kind: "select", num: true,
+            options: function (x) { return (x.buckets || []).map(function (b, i) { return [i, b || "Group " + (i + 1)]; }); } }] }] },
     mcq: { label: "Quiz question", fields: [
       { k: "question", label: "Question", kind: "textarea", req: true },
       { k: "image", label: "Image", kind: "image" },
@@ -60,8 +94,14 @@
     match: function () { return { type: "match", title: "", instruction: "Match each item on the left to one on the right.", pairs: [{ left: "", right: "" }, { left: "", right: "" }] }; },
     scenario: function () { return { type: "scenario", title: "", situation: "", choices: [{ text: "", correct: true, feedback: "" }, { text: "", correct: false, feedback: "" }] }; },
     summary: function () { return { type: "summary", title: "Key takeaways", points: [""] }; },
-    mcq: function () { return { type: "mcq", question: "", options: ["", ""], correct: 0, explanation: "", scored: true }; }
+    mcq: function () { return { type: "mcq", question: "", options: ["", ""], correct: 0, explanation: "", scored: true }; },
+    section: function () { return { type: "section", title: "", subtitle: "", icon: "flag" }; },
+    infographic: function () { return { type: "infographic", title: "", layout: "process", parts: [{ title: "", icon: "circle-check" }, { title: "", icon: "circle-check" }, { title: "", icon: "circle-check" }] }; },
+    sort: function () { return { type: "sort", title: "", instruction: "Sort each item into the right group.", buckets: ["", ""], terms: [{ text: "", bucket: 0 }, { text: "", bucket: 1 }, { text: "", bucket: 0 }] }; }
   };
+  function iconOk(n) { return !n || !!(window.ICONS && window.ICONS[n]); }
+  function filledVal(v) { return typeof v === "number" || (typeof v === "string" && v.trim() !== ""); }
+  function shownCells(f, scr) { return f.cells.filter(function (c) { return !c.show || c.show(scr); }); }
 
   var S = { media: [], picking: false, cfg: null, key: "", hostKey: null, needsAudio: 0, recording: false, ttsServerKey: false, voPoll: null, id: null, course: null, brand: "#1f5eff", sel: "course", dirty: false, changed: false, version: 1, onClose: null, previewTimer: null };
   var $ = function (id) { return document.getElementById(id); };
@@ -93,6 +133,8 @@
       TYPES[scr.type].fields.forEach(function (f) {
         var v = scr[f.k], add = function (m, row) { out.push({ s: i, f: f.k, r: row, m: m }); };
         if (f.kind === "image") { if (v && v.src && blank(v.alt)) add("Describe the image for people who can't see it."); }
+        else if (f.kind === "icon") { if (!iconOk(v)) add("Pick an icon from the list, or clear the box."); }
+        else if (f.kind === "select") { if (f.req && !filledVal(v)) add("Choose one."); }
         else if (f.kind === "text" || f.kind === "textarea") { if (f.req && blank(v)) add("Fill this in."); }
         else if (f.kind === "list" || f.kind === "options") {
           var filled = (v || []).filter(function (x) { return !blank(x); });
@@ -102,16 +144,24 @@
             if (blank((v || [])[scr.correct])) add("Select the correct answer, and make sure it has text.");
           }
         } else if (f.kind === "records") {
-          var rows = (v || []).filter(function (r) { return f.cells.some(function (c2) { return !blank(r[c2.k]); }); });
+          var cells = shownCells(f, scr), textCells = cells.filter(function (c2) { return c2.kind !== "select" && c2.kind !== "icon"; });
+          var rows = (v || []).filter(function (r) { return textCells.some(function (c2) { return filledVal(r[c2.k]); }); });
           if (rows.length < (f.min || 1)) add(f.min > 1 ? "Add at least " + f.min + " filled-in rows." : "Add at least one row.");
+          if (f.max && rows.length > f.max) add("Use at most " + f.max + ".");
           (v || []).forEach(function (r, n) {
-            var some = f.cells.some(function (c2) { return !blank(r[c2.k]); });
-            var need = f.correct ? ["text"] : f.cells.map(function (c2) { return c2.k; });
-            if (some && need.some(function (k) { return blank(r[k]); })) add(f.correct ? "This choice needs text." : "Fill in both parts.", n);
+            var some = textCells.some(function (c2) { return filledVal(r[c2.k]); });
+            var need = f.correct ? ["text"] : cells.filter(function (c2) { return !c2.opt || (c2.reqIf && c2.reqIf(scr)); }).map(function (c2) { return c2.k; });
+            if (some && need.some(function (k) { return !filledVal(r[k]); })) add(f.correct ? "This choice needs text." : "Fill in the required parts.", n);
+            if (some && cells.some(function (c2) { return c2.kind === "icon" && !iconOk(r[c2.k]); })) add("Pick an icon from the list, or clear it.", n);
           });
           if (f.correct && !(v || []).some(function (r) { return r.correct && !blank(r.text); })) add("Mark the best response.");
         }
       });
+      if (scr.type === "infographic" && scr.layout === "comparison" && (scr.parts || []).length !== 2) out.push({ s: i, f: "parts", m: "A comparison has exactly 2 columns." });
+      if (scr.type === "sort") {
+        var nb = (scr.buckets || []).filter(function (b) { return !blank(b); }).length;
+        if (nb < 2 || nb > 3) out.push({ s: i, f: "buckets", m: "Use 2 or 3 groups." });
+      }
     });
     return out;
   }
@@ -125,7 +175,15 @@
       TYPES[scr.type].fields.forEach(function (f) {
         var v = scr[f.k];
         if (f.kind === "image") {
-          if (v && v.src) scr.image = { src: v.src, alt: (v.alt || "").trim() }; else delete scr.image;
+          if (v && v.src) {
+            var img = { src: v.src, alt: (v.alt || "").trim() };
+            if (v.credit) { img.credit = v.credit; if (v.credit_url) img.credit_url = v.credit_url; }
+            scr.image = img;
+          } else delete scr.image;
+        } else if (f.kind === "icon") {
+          if (blank(v)) delete scr[f.k]; else scr[f.k] = v.trim();
+        } else if (f.kind === "select") {
+          if (!filledVal(v)) delete scr[f.k];
         } else if (f.kind === "text" || f.kind === "textarea") {
           if (typeof v === "string") scr[f.k] = v.trim();
           if (!f.req && blank(scr[f.k])) delete scr[f.k];
@@ -138,8 +196,19 @@
           scr.options = kept;
           scr.correct = Math.max(0, kept.indexOf((correctText || "").trim()));
         } else if (f.kind === "records") {
-          scr[f.k] = (v || []).filter(function (r) { return f.cells.some(function (c2) { return !blank(r[c2.k]); }); })
-            .map(function (r) { var o = {}; f.cells.forEach(function (c2) { o[c2.k] = (r[c2.k] || "").trim(); }); if (f.correct) o.correct = !!r.correct; return o; });
+          var cs = shownCells(f, scr), tc = cs.filter(function (c2) { return c2.kind !== "select" && c2.kind !== "icon"; });
+          scr[f.k] = (v || []).filter(function (r) { return tc.some(function (c2) { return filledVal(r[c2.k]); }); })
+            .map(function (r) {
+              var o = {};
+              cs.forEach(function (c2) {
+                var val = r[c2.k];
+                if (c2.num) { o[c2.k] = Number(val) || 0; return; }
+                val = typeof val === "string" ? val.trim() : "";
+                if (val || !c2.opt) o[c2.k] = val;
+              });
+              if (f.correct) o.correct = !!r.correct;
+              return o;
+            });
         }
       });
       return scr;
@@ -149,7 +218,11 @@
 
   /* ---------- outline ---------- */
   function nameOf(scr) { return (scr.title || scr.question || "").trim() || "Untitled"; }
-  function typeLabel(scr) { return scr.type === "mcq" && scr.scored === false ? "Practice question" : TYPES[scr.type].label; }
+  function typeLabel(scr) {
+    if (scr.type === "mcq" && scr.scored === false) return "Practice question";
+    if (scr.type === "infographic" && scr.layout) return "Infographic: " + scr.layout.charAt(0).toUpperCase() + scr.layout.slice(1);
+    return TYPES[scr.type] ? TYPES[scr.type].label : scr.type;
+  }
 
   function renderOutline() {
     var errs = problems(), bad = {};
@@ -210,6 +283,7 @@
   function mediaUrl(src) { return "/api/jobs/" + S.id + "/media/" + encodeURIComponent(src.split("/").pop()); }
   function mediaLabel(m) {
     if (m.kind === "upload") return "Uploaded: " + (m.slide_title || "image");
+    if (m.kind === "photo") return m.credit || "Stock photo";
     return "Slide " + m.slide + (m.kind === "slide" ? ", " + (m.reason || "diagram") : ", picture") + (m.slide_title ? ": " + m.slide_title : "");
   }
 
@@ -226,6 +300,7 @@
         el("img", { src: mediaUrl(img.src), alt: "" }),
         el("div", { class: "ed-img-side" }, [
           el("label", { for: "ed-f-image-alt", text: "Description for people who can't see it" }), alt,
+          img.credit ? el("p", { class: "help", text: img.credit }) : null,
           el("div", { class: "ed-img-actions" }, [
             el("button", { type: "button", class: "ed-addrow", text: "Change image", onclick: function () { S.picking = true; redraw(); } }),
             el("button", { type: "button", class: "ed-del", text: "Remove image", onclick: function () { delete scr.image; S.picking = false; touch(); redraw(); } })])])]));
@@ -269,11 +344,92 @@
       el("button", { type: "button", class: "ed-del", text: "Cancel", onclick: function () { S.picking = false; redraw(); } })]));
     box.appendChild(el("p", { class: "help", text: "PNG, JPG, GIF or WebP, up to 8 MB. Large images are resized automatically." }));
     box.appendChild(note);
+    box.appendChild(stockPanel(scr, redraw));
     return box;
+  }
+
+  function pexelsKey() {
+    return S.pexKey || (S.hostPexels ? S.hostPexels() : "");
+  }
+
+  function stockPanel(scr, redraw) {
+    var wrap = el("div", { class: "ed-stock" });
+    wrap.appendChild(el("p", { class: "ed-picker-head", text: "Or search free stock photos" }));
+    var q = el("input", { type: "search", id: "ed-stock-q", placeholder: "e.g. technician repairing washing machine", "aria-label": "Search stock photos" });
+    q.value = S.stockQ || scr.photo_query || scr.title || "";
+    var keyRow = null, keyIn = null;
+    if (!(S.cfg && S.cfg.photos_server_key) && !pexelsKey()) {
+      keyIn = el("input", { type: "password", id: "ed-stock-key", autocomplete: "off", placeholder: "Pexels API key", "aria-label": "Pexels API key" });
+      keyRow = el("div", { class: "ed-stock-key" }, [
+        el("label", { for: "ed-stock-key", text: "Pexels API key (free at pexels.com/api; kept only in this tab)" }), keyIn]);
+    }
+    var results = el("div", { class: "ed-gallery ed-stock-results" });
+    var msg = el("p", { class: "help", role: "status" });
+    function run() {
+      if (keyIn && keyIn.value.trim()) S.pexKey = keyIn.value.trim();
+      var query = q.value.trim(); S.stockQ = query;
+      if (!query) { msg.textContent = "Type what the photo should show."; return; }
+      msg.textContent = "Searching…"; results.innerHTML = "";
+      api("POST", "/api/jobs/" + S.id + "/photos/search", { query: query, api_key: pexelsKey() }).then(function (j) {
+        msg.textContent = j.photos.length ? "Photos from Pexels. The photographer is credited on the screen." : "No photos found. Try simpler words.";
+        j.photos.forEach(function (ph) {
+          results.appendChild(el("button", { type: "button", class: "ed-thumb", "aria-label": "Use photo: " + (ph.alt || query) + " by " + ph.photographer,
+            onclick: function () {
+              msg.textContent = "Adding the photo…";
+              api("POST", "/api/jobs/" + S.id + "/photos/add", { photo: ph, api_key: pexelsKey() }).then(function (m) {
+                S.media = S.media.filter(function (x) { return x.src !== m.src; }).concat([m]);
+                scr.image = { src: m.src, alt: m.alt || ph.alt || "", credit: m.credit, credit_url: m.credit_url };
+                S.picking = false; touch();
+                var f = redraw(); var a = f.querySelector("textarea"); if (a) a.focus();
+              }).catch(function (e) { msg.textContent = e.message; });
+            } }, [el("img", { src: ph.thumb, alt: "", loading: "lazy", referrerpolicy: "no-referrer" }), el("span", { text: ph.photographer })]));
+        });
+      }).catch(function (e) { msg.textContent = e.message; });
+    }
+    q.addEventListener("keydown", function (e) { if (e.key === "Enter") { e.preventDefault(); run(); } });
+    wrap.appendChild(el("div", { class: "ed-stock-row" }, [q, el("button", { type: "button", class: "btn", id: "ed-stock-go", text: "Search", onclick: run })]));
+    if (keyRow) wrap.appendChild(keyRow);
+    wrap.appendChild(msg);
+    wrap.appendChild(results);
+    return wrap;
+  }
+
+  function iconInput(value, onChange, id, label) {
+    if (!$("ed-icons")) {
+      var dl = el("datalist", { id: "ed-icons" }, Object.keys(window.ICONS || {}).map(function (n) { return el("option", { value: n }); }));
+      document.body.appendChild(dl);
+    }
+    var chip = el("span", { class: "ed-ico-chip", "aria-hidden": "true" });
+    var inp = el("input", { type: "text", id: id, list: "ed-icons", spellcheck: "false", autocomplete: "off", placeholder: "Type to search, e.g. shield", "aria-label": label });
+    inp.value = value || "";
+    function show() {
+      var n = inp.value.trim(), body = window.ICONS && window.ICONS[n];
+      chip.innerHTML = body ? '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">' + body + "</svg>" : "";
+      chip.classList.toggle("is-empty", !body);
+    }
+    inp.addEventListener("input", function () { show(); onChange(inp.value.trim()); });
+    show();
+    return el("span", { class: "ed-ico" }, [chip, inp]);
+  }
+
+  function selectInput(options, value, onChange, id, label) {
+    var sel = el("select", { id: id, "aria-label": label }, options.map(function (o) { return el("option", { value: String(o[0]), text: o[1] }); }));
+    sel.value = value == null ? "" : String(value);
+    sel.addEventListener("change", function () { onChange(sel.value); });
+    return sel;
   }
 
   function field(f, scr) {
     if (f.kind === "image") return imageField(scr);
+    if (f.kind === "icon" || f.kind === "select") {
+      var w = el("div", { class: "ed-field", "data-k": f.k }), fid = "ed-f-" + f.k;
+      w.appendChild(el("label", { class: "ed-label", for: fid, text: f.label + (f.req ? "" : " (optional)") }));
+      w.appendChild(f.kind === "icon" ? iconInput(scr[f.k], function (v) { scr[f.k] = v; touch(); }, fid, f.label)
+        : selectInput(f.options, scr[f.k], function (v) { scr[f.k] = v; touch(); renderForm(); }, fid, f.label));
+      if (f.help) w.appendChild(el("p", { class: "help", text: f.help }));
+      w.appendChild(el("span", { class: "ed-err", id: "ed-err-" + f.k, role: "status" }));
+      return w;
+    }
     var id = "ed-f-" + f.k, wrap = el("div", { class: "ed-field", "data-k": f.k }), v = scr[f.k];
     var onText = function (e) { scr[f.k] = e.target.value; touch(); if (f.k === "title" || f.k === "question") renderOutline(); };
     if (f.kind === "check") {
@@ -316,11 +472,18 @@
         } else cells.appendChild(inp);
         row = el("div", { class: "ed-row" + (f.kind === "options" && scr.correct === n ? " is-correct" : ""), "data-row": n });
       } else {
-        f.cells.forEach(function (c) {
-          var inp2 = el(c.area ? "textarea" : "input", c.area ? { rows: 2 } : { type: "text" });
-          inp2.value = item[c.k] || "";
-          inp2.addEventListener("input", function () { item[c.k] = inp2.value; touch(); });
-          cells.appendChild(el("label", null, [c.label, inp2]));
+        shownCells(f, scr).forEach(function (c) {
+          var lab = (c.labelFor ? c.labelFor(scr) : c.label) + (c.opt && !(c.reqIf && c.reqIf(scr)) ? " (optional)" : "");
+          var aria = lab + " " + (n + 1), ctl;
+          if (c.kind === "icon") ctl = iconInput(item[c.k], function (v) { item[c.k] = v; touch(); }, null, aria);
+          else if (c.kind === "select") ctl = selectInput(typeof c.options === "function" ? c.options(scr) : c.options, item[c.k],
+            function (v) { item[c.k] = c.num ? Number(v) : v; touch(); }, null, aria);
+          else {
+            ctl = el(c.area ? "textarea" : "input", c.area ? { rows: 2 } : { type: "text", placeholder: c.placeholder || "" });
+            ctl.value = item[c.k] == null ? "" : String(item[c.k]);
+            (function (inp2) { inp2.addEventListener("input", function () { item[c.k] = inp2.value; touch(); }); })(ctl);
+          }
+          cells.appendChild(el("label", { class: "ed-cell ed-cell-" + c.k }, [lab, ctl]));
         });
         if (f.correct) {
           var r2 = el("input", { type: "radio", name: "ed-best" });
@@ -341,7 +504,8 @@
       box.appendChild(row);
     });
     box.appendChild(el("button", { type: "button", class: "ed-addrow", text: "+ " + f.add, onclick: function () {
-      arr.push(f.kind === "list" || f.kind === "options" ? "" : f.cells.reduce(function (o, c) { o[c.k] = ""; return o; }, f.correct ? { correct: false } : {}));
+      if (f.max && arr.length >= f.max) { status("This screen can have at most " + f.max + ".", "error"); return; }
+      arr.push(f.kind === "list" || f.kind === "options" ? "" : f.cells.reduce(function (o, c) { o[c.k] = c.num ? 0 : ""; return o; }, f.correct ? { correct: false } : {}));
       var holder = box.parentNode;
       touch(); rerender();
       var ins = holder && holder.querySelectorAll(".ed-row input[type=text], .ed-row textarea");
@@ -652,6 +816,7 @@
       build();
       S.id = jobId; S.onClose = onClose; S.sel = 0; S.changed = false;
       S.hostKey = opts && opts.geminiKey || null;
+      S.hostPexels = opts && opts.pexelsKey || null;
       document.body.classList.add("editing");
       $("editor").classList.remove("is-hidden");
       window.scrollTo(0, 0);

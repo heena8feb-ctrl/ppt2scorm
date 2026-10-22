@@ -91,7 +91,7 @@ body.editing main > h1, body.editing main > .lede, body.editing #form, body.edit
 }
 
 /* inputs inside labels must not inherit the label's bold weight */
-.ed-form input[type=text], .ed-form input[type=number], .ed-form textarea { font: inherit; font-weight: 400; font-size: 16px; color: var(--ink);
+.ed-form input[type=text], .ed-form input[type=number], .ed-form input[type=search], .ed-form input[type=password], .ed-form textarea { font: inherit; font-weight: 400; font-size: 16px; color: var(--ink);
   background: var(--surface); border: 1.5px solid var(--line); border-radius: 6px; padding: 10px 12px; width: 100%; }
 .ed-form input:focus-visible, .ed-form textarea:focus-visible { outline: 3px solid var(--mark); outline-offset: 2px; border-color: var(--ink); }
 .ed-row:not(.record) { align-items: center; }
@@ -136,3 +136,20 @@ body.editing main > h1, body.editing main > .lede, body.editing #form, body.edit
 .ed-record-msg { margin: 0 0 12px; font-weight: 700; font-size: 15px; }
 .ed-record input[type=password] { font: inherit; font-size: 16px; border: 1.5px solid var(--line); border-radius: 6px; padding: 10px 12px; width: 100%; margin-bottom: 4px; }
 .ed-record .btn { margin-top: 10px; }
+
+/* stock photos */
+.ed-stock { margin-top: 14px; padding-top: 14px; border-top: 1px dashed var(--line, #c9ccd4); }
+.ed-stock-row { display: flex; gap: 8px; }
+.ed-stock-row input { flex: 1; min-width: 0; }
+.ed-stock-key { display: grid; gap: 4px; margin-top: 8px; font-size: 13.5px; }
+.ed-stock-results:empty { display: none; }
+.ed-stock-results .ed-thumb img { object-fit: cover; }
+
+/* icon picker + selects inside records */
+.ed-ico { display: flex; align-items: center; gap: 8px; }
+.ed-ico input { flex: 1; min-width: 0; }
+.ed-ico-chip { flex: none; width: 34px; height: 34px; display: grid; place-items: center; border-radius: 8px; background: var(--surface, #f3f4f7); color: var(--action, #1f5eff); border: 1px solid var(--line, #c9ccd4); }
+.ed-ico-chip svg { width: 20px; height: 20px; }
+.ed-ico-chip.is-empty { background: transparent; border-style: dashed; }
+.ed-field > select, .ed-cells select { width: 100%; font: inherit; font-size: 16px; padding: 10px 12px; border: 1.5px solid var(--line); border-radius: 6px; background: var(--surface); color: var(--ink); }
+.ed-cell { display: grid; gap: 4px; }

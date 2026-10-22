@@ -8,6 +8,7 @@ import os
 import random
 import re
 
+from .icons import icon_for
 from .schema import SCREEN_FIELDS, CourseError, validate
 
 # name: (API key env var, base_url for OpenAI-compatible APIs or None for Anthropic, default model)
@@ -97,40 +98,63 @@ def _make_caller(provider, model, api_key=None, system=None):
     call.state = state
     return call, model
 
-SYSTEM_PROMPT = """You are a senior instructional designer. You turn slide decks into short,
-engaging e-learning courses. You never invent facts that are not supported by the deck;
-you may rephrase, restructure, and turn content into interactions.
+from .icons import NAMES as _ICON_NAMES
 
-Design rules:
-- Start with an `intro` screen (3-4 measurable learning objectives).
-- Keep every screen short: body <= 60 words, bullets <= 5, each bullet <= 15 words.
-- Do NOT reproduce slides one-to-one. Turn lists of definitions/examples into `flipcards` or `reveal`,
-  term-to-meaning lists into `match`, and any situation/case/example into a `scenario`.
-- Use speaker notes: they usually hold the real teaching point and the right answer to scenarios.
-- Roughly every 2-3 screens, include an interaction (flipcards, reveal, match, scenario).
-- End with a `summary` screen, then a final assessment of 4-6 `mcq` screens with "scored": true.
-  Each mcq: 3-4 plausible options, exactly one correct, an explanation that teaches.
-- Spread the correct answer position across options; avoid "all of the above".
-- Plain, friendly language for a corporate audience.
+SYSTEM_PROMPT = """You are the lead of a world-class L&D studio that builds award-winning e-learning for top
+enterprises. You turn a slide deck into a short course that people actually want to finish: visual,
+story-driven, practical and memorable. You never invent facts the deck doesn't support; you may restructure,
+rephrase, dramatise as realistic scenarios, and turn content into interactions and infographics.
 
-Images:
-- Slides may list IMAGE lines (photos, diagrams, charts, or whole slides rendered as images).
-  Attach images that help learning with "image": {"src": "<the exact media/... path>", "alt": "<what it shows>"}.
-- Only use paths listed in the deck; never invent one. Use each image at most once. Images can go on
-  intro, content, flipcards, reveal, scenario and mcq screens.
-- A chart or diagram usually belongs on the content or reveal screen that teaches it. A photo of equipment
-  can make a scenario or a question concrete ("Look at the photo: what should the technician check first?").
-- Alt text describes what the image shows for someone who can't see it (e.g. "Bar chart: blocked filters
-  cause 50% of drain complaints"), in one sentence. Don't start with "Image of".
-- If an image is decorative or unclear, leave it out.
+HOW GREAT COURSES ARE BUILT
+1. Hook first. Open with an `intro` (title, a one-line promise of what the learner will be able to DO,
+   3-4 measurable objectives starting with action verbs). Then, before any theory, a short `scenario`
+   or striking `infographic` (stats layout) that shows why this matters to THEM, using the deck's facts.
+2. Chunk into 2-4 modules. Start each with a `section` screen (title, one-line subtitle, icon).
+3. Show, don't tell. Every screen must be visual or interactive. A `content` screen is allowed only for a
+   single key idea, must have an icon and ideally an image or photo, and at most 2 in a row is never OK.
+4. Pick the right visual for the content (this is the most important rule):
+   - steps or a procedure -> infographic "process" (3-6 parts, each with an icon)
+   - history, phases or a sequence over time -> infographic "timeline" (value = the date/phase label)
+   - numbers, percentages, costs, durations -> infographic "stats" (value = the number, e.g. "50%", "3x", "72 hrs")
+   - do vs don't, right vs wrong, before vs after -> infographic "comparison" (exactly 2 parts; text = one
+     point per line; tone "good" for the right column, "bad" for the wrong one)
+   - a repeating loop (plan-do-check-act, lifecycle) -> infographic "cycle" (3-6 parts)
+   - levels, priorities, a hierarchy -> infographic "pyramid" (top = most important/smallest, 3-5 parts)
+   - a set of related concepts, principles or types -> infographic "grid" (3-6 parts, each with an icon)
+   - things to remember to do on the job -> infographic "checklist" (learners tick each item)
+   - terms and meanings -> `match`; recall/self-test -> `flipcards`; deeper detail -> `reveal`
+   - classifying (safe vs risky, personal data vs not) -> `sort` (2-3 buckets, 6-10 short items)
+   - judgement in a realistic situation -> `scenario` with named people, a place and a consequence
+5. Variety. Never use the same screen type or infographic layout twice in a row. A 15-25 screen course
+   should use at least 3 different infographic layouts and at least 3 different interaction types.
+6. Spaced practice. End each module with one practice `mcq` ("scored": false). Finish the course with a
+   `summary` (the 4-6 things to remember), then a final assessment of 4-6 `mcq` with "scored": true.
+7. Real-world, respectful tone: short sentences, active voice, "you", concrete workplace examples.
+   Body text <= 50 words. Infographic part text <= 18 words. Titles are specific ("Spot a phishing email
+   in 5 seconds"), never generic ("Overview").
+8. Questions test application, not recall: 3-4 plausible options, one correct, an explanation that teaches,
+   the correct position varied; no "all of the above".
+9. Use speaker notes: they usually hold the real teaching point and the answers to scenarios.
 
-Narration:
-- Give EVERY screen a "narration" field: what a friendly trainer would say on that screen, 1 to 3 short
-  sentences (at most 45 words), written to be spoken aloud.
-- Don't just read the screen out. Add the context or reason from the speaker notes, and guide the learner
-  ("Flip each card to check your guess.").
-- On scenario and mcq screens, set up the situation or read the question, but never hint at the answer
-  or read the options.
+ICONS
+Give `section`, `content`, `scenario`, `flipcards`, `reveal` and `summary` screens an "icon", and every
+infographic part an "icon" (except stats and timeline, where it's optional). Use ONLY names from this list:
+""" + " ".join(_ICON_NAMES) + """
+
+IMAGES AND PHOTOS
+- Slides may list IMAGE lines (photos, diagrams, charts, or whole slides rendered as images). Attach the
+  ones that help learning with "image": {"src": "<the exact media/... path>", "alt": "<what it shows>"}.
+  Only use listed paths; use each at most once. A chart or diagram belongs on the screen that teaches it.
+- For about a third of the screens (intro, sections, content, scenarios), add "photo_query": a 3-6 word
+  stock-photo search that shows the situation concretely, e.g. "technician replacing water filter kitchen",
+  "office worker reading suspicious email". People at work, real settings, no text in the photo. Don't add
+  a photo_query to a screen that already has an "image", nor to infographic, sort or match screens.
+- Alt text describes what the image shows in one sentence. Don't start with "Image of".
+
+NARRATION
+- Give EVERY screen a "narration": what a warm, expert trainer would say, 1-3 short sentences (<= 45 words),
+  written to be spoken. Add context or the reason why; guide the learner ("Tick each item as you go.").
+- On scenario, sort and mcq screens, set up the task but never hint at the answer or read the options.
 - Plain words, no abbreviations a voice would stumble on, no emoji, no stage directions.
 
 Output ONLY a JSON object, no markdown fences, matching this schema:
@@ -138,17 +162,21 @@ Output ONLY a JSON object, no markdown fences, matching this schema:
  "title": str, "description": str (1 sentence), "est_minutes": int, "mastery_score": 80,
  "screens": [
   {"type":"intro","title":str,"subtitle":str,"objectives":[str]},
-  {"type":"content","title":str,"body":str,"bullets":[str],"callout":str},
+  {"type":"section","title":str,"subtitle":str,"icon":str},
+  {"type":"content","title":str,"body":str,"bullets":[str],"callout":str,"icon":str},
+  {"type":"infographic","title":str,"intro":str,"layout":"process|timeline|stats|comparison|cycle|pyramid|grid|checklist",
+   "parts":[{"title":str,"text":str,"icon":str,"value":str,"tone":"good|bad"}]},
   {"type":"flipcards","title":str,"instruction":str,"cards":[{"front":str,"back":str}]},
   {"type":"reveal","title":str,"instruction":str,"items":[{"label":str,"detail":str}]},
   {"type":"match","title":str,"instruction":str,"pairs":[{"left":str,"right":str}]},
+  {"type":"sort","title":str,"instruction":str,"buckets":[str],"terms":[{"text":str,"bucket":int}]},
   {"type":"scenario","title":str,"situation":str,"choices":[{"text":str,"correct":bool,"feedback":str}]},
   {"type":"summary","title":str,"points":[str]},
   {"type":"mcq","question":str,"options":[str],"correct":int,"explanation":str,"scored":true}
  ]
 }
-("narration": str goes on every screen. bullets and callout are optional on content screens; "image" is optional on intro, content,
-flipcards, reveal, scenario and mcq screens.)"""
+("narration" goes on every screen. "icon", "image" and "photo_query" are optional where described above.
+In infographic parts, "value" is for stats and timeline, "tone" only for comparison; omit unused keys.)"""
 
 
 def _parse_json(text):
@@ -181,6 +209,44 @@ def ai_course(deck_text, model=None, extra_instructions="", max_retries=2, provi
     raise CourseError(f"AI output invalid after retries: {last_err}")
 
 
+NUMBER = re.compile(r"(\d[\d,.]*\s?(%|x|×|hrs?|hours?|mins?|minutes?|days?|weeks?|months?|years?|crore|lakh|k|m)?)", re.I)
+STEP_WORDS = re.compile(r"(?i)\b(steps?|process|procedure|how to|stages?|workflow|method|rules?)\b")
+VERB_START = re.compile(r"(?i)^(check|verify|unplug|switch|turn|open|close|remove|clean|refit|test|report|collect|use|"
+                        r"share|store|delete|ask|call|send|keep|follow|wear|read|review|confirm|identify|record|shut|"
+                        r"release|swap|flush|install|replace|inspect|pause|stop|avoid|never|always|do)\b")
+
+
+def _basic_visual(title, bullets):
+    """Basic mode: turn a short list into an infographic when its shape is obvious."""
+    if not 3 <= len(bullets) <= 6 or any(len(b.split()) > 22 for b in bullets):
+        return None
+    numbered = [NUMBER.search(b) for b in bullets]
+    if sum(1 for m in numbered if m) >= max(2, len(bullets) - 1) and not STEP_WORDS.search(title):
+        parts = []
+        for b, m in zip(bullets, numbered):
+            if not m:
+                return None
+            value = m.group(1).strip()
+            label = (b[:m.start()] + b[m.end():]).strip(" :-–,.") or b
+            parts.append({"value": value, "title": label[:90]})
+        return {"type": "infographic", "layout": "stats", "title": title, "parts": parts}
+    def split(b):
+        head, _, tail = b.partition(":")
+        return (head.strip(), tail.strip()) if tail and len(head.split()) <= 6 else (b, "")
+    parts = []
+    for b in bullets:
+        t, txt = split(b)
+        part = {"title": t[:90], "icon": icon_for(b)}
+        if txt:
+            part["text"] = txt[:160]
+        parts.append(part)
+    if STEP_WORDS.search(title) or sum(1 for b in bullets if VERB_START.match(b)) >= len(bullets) - 1:
+        return {"type": "infographic", "layout": "process", "title": title, "parts": parts}
+    if all(len(b.split()) <= 14 for b in bullets):
+        return {"type": "infographic", "layout": "grid", "title": title, "parts": parts}
+    return None
+
+
 def heuristic_course(deck, seed=7):
     """No-AI fallback: one screen per slide, long lists become reveal screens,
     plus a simple recall quiz built from slide bullets."""
@@ -202,13 +268,26 @@ def heuristic_course(deck, seed=7):
         images = s.get("images") or []
         if not bullets and not s["notes"] and not images:
             continue  # nothing usable on this slide (e.g. a thank-you slide)
+        if re.search(r"(?i)^(agenda|contents|outline|today'?s (plan|agenda)|thank you|thanks|questions\??|q ?& ?a)\b", title.strip()):
+            continue
         pool += [(title, b) for b in bullets]
-        if len(bullets) >= 4:
+        visual = _basic_visual(title, bullets)
+        prev = screens[-1] if screens else {}
+        if visual and prev.get("type") == "infographic" and prev.get("layout") == visual["layout"]:
+            # keep variety: a second grid in a row becomes flip cards (or a reveal list)
+            if visual["layout"] == "grid" and all(p.get("text") for p in visual["parts"]):
+                visual = {"type": "flipcards", "title": title, "instruction": "Think about each one, then flip the card to check.",
+                          "cards": [{"front": p["title"], "back": p["text"]} for p in visual["parts"]], "icon": icon_for(title)}
+            else:
+                visual = None
+        if visual and not images:
+            screen = visual
+        elif len(bullets) >= 4:
             screen = {"type": "reveal", "title": title, "instruction": "Select each item to learn more.",
-                      "items": [{"label": b.split(":")[0][:60], "detail": b} for b in bullets]}
+                      "items": [{"label": b.split(":")[0][:60], "detail": b} for b in bullets], "icon": icon_for(title)}
         else:
             what = {"slide": "diagram"}.get(images[0]["kind"], "picture") if images else ""
-            screen = {"type": "content", "title": title,
+            screen = {"type": "content", "title": title, "icon": icon_for(title + " " + " ".join(bullets)),
                       "body": s["notes"] or " ".join(bullets) or f"Take a close look at this {what}.", "bullets": bullets}
         if images:
             screen["image"] = {"src": images[0]["src"], "alt": images[0].get("alt") or title}

@@ -55,7 +55,7 @@ def _public(host):
 BROWSER_UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36"
 
 
-def fetch(url, limit, accept="*/*", ua=UA):
+def fetch(url, limit, accept="*/*", ua=UA, headers=None):
     """GET with checks on every hop. Returns (final url, content type, bytes)."""
     opener = urllib.request.build_opener(_Redirect)
     for _ in range(5):
@@ -66,14 +66,16 @@ def fetch(url, limit, accept="*/*", ua=UA):
             raise BrandError("web addresses with a user name or password aren't supported")
         if not _public(parts.hostname):
             raise BrandError("that address points to a private network, which isn't allowed")
-        req = urllib.request.Request(url, headers={"User-Agent": ua, "Accept": accept, "Accept-Language": "en"})
+        req = urllib.request.Request(url, headers=dict({"User-Agent": ua, "Accept": accept, "Accept-Language": "en"}, **(headers or {})))
         try:
             r = opener.open(req, timeout=TIMEOUT)
         except urllib.error.HTTPError as e:
             if e.code in (301, 302, 303, 307, 308) and e.headers.get("Location"):
                 url = urllib.parse.urljoin(url, e.headers["Location"])
                 continue
-            raise BrandError(f"the website answered with error {e.code}") from None
+            err = BrandError(f"the website answered with error {e.code}")
+            err.status_code = e.code
+            raise err from None
         except (urllib.error.URLError, TimeoutError, OSError) as e:
             raise BrandError(f"couldn't reach the website ({getattr(e, 'reason', e)})") from None
         with r:

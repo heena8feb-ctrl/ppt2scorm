@@ -169,6 +169,7 @@ details.adv .panel { margin-top: 18px; }
           <ol class="steps" id="steps">
             <li data-step="extract">Reading slides and speaker notes<span class="sub" id="sub-extract"></span></li>
             <li data-step="design">Designing the course<span class="sub" id="sub-design"></span></li>
+            <li data-step="photos" id="step-photos">Finding photos<span class="sub" id="sub-photos"></span></li>
             <li data-step="narrate" id="step-narrate">Recording narration<span class="sub" id="sub-narrate"></span></li>
             <li data-step="package">Packaging for your LMS<span class="sub">SCORM 1.2 with score, pass mark and resume</span></li>
           </ol>
@@ -212,6 +213,18 @@ details.adv .panel { margin-top: 18px; }
             <div class="colour" id="quick-colour">
               <input type="color" id="brand-pick" value="#1f5eff" aria-label="Pick main colour">
               <input type="text" id="brand-text" name="brand" value="#1f5eff" maxlength="7" spellcheck="false" aria-label="Main colour">
+            </div>
+          </div>
+          <div class="field">
+            <span class="legend" id="photo-label">Photos</span>
+            <div class="seg" role="radiogroup" aria-labelledby="photo-label">
+              <label><input type="radio" name="photos" value="off" checked>None</label>
+              <label><input type="radio" name="photos" value="pexels">Stock photos</label>
+            </div>
+            <p class="help" id="photo-help">Infographics and icons are always included. Add real-world photos too?</p>
+            <div id="pexels-field" class="is-hidden">
+              <label for="pexels_key" class="help">Pexels API key (free at <a href="https://www.pexels.com/api/" target="_blank" rel="noopener">pexels.com/api</a>)</label>
+              <input type="password" id="pexels_key" autocomplete="off" spellcheck="false">
             </div>
           </div>
           <div class="field">
@@ -336,6 +349,10 @@ details.adv .panel { margin-top: 18px; }
     document.querySelectorAll(".ai-only").forEach(function (el) { el.classList.toggle("is-hidden", !ai && nar !== "audio"); });
     $("instructions").closest(".field").classList.toggle("is-hidden", !ai);
     $("voice-field").classList.toggle("is-hidden", nar !== "audio");
+    var ph = form.querySelector("input[name=photos]:checked").value;
+    $("pexels-field").classList.toggle("is-hidden", ph !== "pexels" || cfg.photos_server_key);
+    $("photo-help").textContent = ph === "pexels" ? "The AI picks moments that deserve a photo; matching free photos from Pexels are added with credits."
+      : "Infographics and icons are always included. Add real-world photos too?";
     $("narr-help").textContent = { off: "No voice-over.",
       audio: "Records a natural voice-over for every screen with Google Gemini. Adds a minute or two." +
         (cfg.tts_server_key ? "" : " Needs a Gemini API key."),
@@ -390,7 +407,14 @@ details.adv .panel { margin-top: 18px; }
       $("frame-note").textContent = "AI voice needs a Google Gemini key: choose Google Gemini as the provider and paste your key, or choose Device voice.";
       $("provider").focus(); return;
     }
+    var ph = form.querySelector("input[name=photos]:checked").value;
+    if (ph === "pexels" && !cfg.photos_server_key && !$("pexels_key").value.trim()) {
+      $("frame-note").textContent = "Paste a free Pexels API key for stock photos, or choose None.";
+      $("pexels_key").focus(); return;
+    }
     var fd = new FormData();
+    fd.append("photos", ph);
+    fd.append("pexels_key", $("pexels_key").value.trim());
     fd.append("narration", narration());
     fd.append("voice", $("voice").value);
     fd.append("file", file);
@@ -403,6 +427,8 @@ details.adv .panel { margin-top: 18px; }
     markSteps("extract", {});
     $("sub-extract").textContent = ""; $("sub-design").textContent = ""; $("sub-narrate").textContent = "";
     $("step-narrate").classList.toggle("is-hidden", narration() !== "audio");
+    $("step-photos").classList.toggle("is-hidden", form.querySelector("input[name=photos]:checked").value !== "pexels");
+    $("sub-photos").textContent = "";
     $("frame-note").textContent = "Uploading " + file.name + "…";
     setState("busy");
     fetch("/api/convert", { method: "POST", body: fd })
@@ -412,14 +438,15 @@ details.adv .panel { margin-top: 18px; }
   });
 
   function markSteps(current, j) {
-    var order = ["extract", "design", "narrate", "package"], idx = order.indexOf(current);
-    if (current === "done") idx = 4;
+    var order = ["extract", "design", "photos", "narrate", "package"], idx = order.indexOf(current);
+    if (current === "done") idx = 5;
     document.querySelectorAll("#steps li").forEach(function (li) {
       var i = order.indexOf(li.dataset.step);
       li.classList.toggle("ok", i < idx); li.classList.toggle("now", i === idx);
       if (i === idx) li.setAttribute("aria-current", "step"); else li.removeAttribute("aria-current");
     });
     if (j.slides) $("sub-extract").textContent = j.slides + " slides";
+    if (current === "photos" && j.photo_total) $("sub-photos").textContent = "Screen " + Math.min(j.photo_done + 1, j.photo_total) + " of " + j.photo_total;
     if (current === "narrate" && j.narr_total) $("sub-narrate").textContent = "Screen " + Math.min(j.narr_done + 1, j.narr_total) + " of " + j.narr_total;
     if (current === "design") {
       var s = j.design_seconds || 0;
@@ -445,7 +472,8 @@ details.adv .panel { margin-top: 18px; }
 
   var LABELS = { intro: ["intro", "intros"], content: ["content screen", "content screens"], flipcards: ["flip-card set", "flip-card sets"],
     reveal: ["click-to-reveal list", "click-to-reveal lists"], match: ["matching exercise", "matching exercises"],
-    scenario: ["scenario", "scenarios"], summary: ["recap", "recaps"], mcq: ["quiz question", "quiz questions"] };
+    scenario: ["scenario", "scenarios"], summary: ["recap", "recaps"], mcq: ["quiz question", "quiz questions"],
+    infographic: ["infographic", "infographics"], section: ["module", "modules"], sort: ["sorting activity", "sorting activities"] };
 
   function finish(id, j) {
     currentJob = id;
@@ -475,7 +503,8 @@ details.adv .panel { margin-top: 18px; }
         $("summary").appendChild(document.createTextNode(" Includes your edits."));
         $("edit").focus();
       });
-    }, { geminiKey: function () { return $("provider").value === "gemini" ? $("api_key").value.trim() : ""; } });
+    }, { geminiKey: function () { return $("provider").value === "gemini" ? $("api_key").value.trim() : ""; },
+         pexelsKey: function () { return $("pexels_key").value.trim(); } });
   });
 
   $("again").addEventListener("click", function () {
@@ -484,6 +513,7 @@ details.adv .panel { margin-top: 18px; }
   });
 })();
 </script>
+<script src="/player/icons.js"></script>
 <script src="/static/brandkit.js"></script>
 <script src="/static/editor.js"></script>
 <script>

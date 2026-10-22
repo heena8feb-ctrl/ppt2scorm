@@ -38,6 +38,7 @@ def main(argv=None):
     ap.add_argument("--narrate", action="store_true", help="record an AI voice-over for every screen (Gemini text-to-speech)")
     ap.add_argument("--device-voice", action="store_true", help="no recording: the learner's device reads each screen aloud")
     ap.add_argument("--voice", default=DEFAULT_VOICE, choices=list(VOICES), help="Gemini voice for --narrate")
+    ap.add_argument("--photos", action="store_true", help="add stock photos from Pexels where the AI suggests them (needs PEXELS_API_KEY)")
     ap.add_argument("--brand-kit", help="apply a brand kit file (exported from the web app, or made with --save-brand-kit)")
     ap.add_argument("--brand-from-deck", action="store_true", help="use the deck's theme colours, fonts and repeated logo")
     ap.add_argument("--brand-from-website", metavar="URL", help="detect logo, colours and fonts from a company website")
@@ -71,6 +72,17 @@ def main(argv=None):
         print(f"    Draft saved to {draft}. Review/edit it, then rerun with:")
         print(f"    python -m ppt2scorm.cli {a.pptx} --course-json {draft}")
         return 0
+
+    if a.photos:
+        from .photos import add_photos
+        key = os.environ.get("PEXELS_API_KEY")
+        if not key:
+            print("    warning: --photos needs PEXELS_API_KEY (free at pexels.com/api); skipping photos")
+        else:
+            added, pw = add_photos(course, media, key)
+            print(f"    added {len(added)} stock photos from Pexels")
+            for w in pw:
+                print("    warning:", w)
 
     if a.narrate or a.device_voice:
         mode = "audio" if a.narrate else "device"

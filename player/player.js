@@ -230,6 +230,20 @@
     ]);
   };
 
+  /* ---------- rich screens (rich.js): sections, infographics, sort ---------- */
+  if (window.RichScreens) {
+    var rich = window.RichScreens({ el: el, markDone: markDone, state: state, shuffled: shuffled,
+      sections: function () { var out = []; C.screens.forEach(function (x, i) { if (x.type === "section") out.push(i); }); return out; } });
+    R.section = rich.section; R.infographic = rich.infographic; R.sort = rich.sort;
+  }
+  var ICON_ON = { content: 1, flipcards: 1, reveal: 1, scenario: 1, summary: 1, intro: 0 };
+  function withIcon(section, s) {
+    if (!s.icon || !ICON_ON[s.type] || !window.RichIcon) return section;
+    var h = section.querySelector("h2"), ic = window.RichIcon(s.icon, "head-ico");
+    if (h && ic) { h.classList.add("has-ico"); h.insertBefore(el("span", { class: "head-chip" }, [ic]), h.firstChild); }
+    return section;
+  }
+
   function score() {
     var right = 0;
     scored.forEach(function (i) { if (state.answers[i] === C.screens[i].correct) right++; });
@@ -288,7 +302,7 @@
   }
 
   /* ---------- images: beside the text on reading screens, above the activity on interactive ones ---------- */
-  var SIDE = { intro: 1, content: 1, reveal: 1 };
+  var SIDE = { intro: 1, content: 1, reveal: 1, section: 1 };
   var zoomBox = null;
 
   function zoom(src, alt) {
@@ -312,9 +326,20 @@
     var img = el("img", { src: im.src, alt: alt, loading: "lazy", decoding: "async" });
     var btn = el("button", { class: "zoom", type: "button", "aria-label": "Enlarge image" + (alt ? ": " + alt : "") }, [img]);
     var fig = el("figure", { class: "fig" + (SIDE[s.type] ? "" : " stack") }, [btn]);
+    if (im.credit) {
+      fig.appendChild(el("figcaption", { class: "credit" }, [im.credit_url ?
+        el("a", { href: im.credit_url, target: "_blank", rel: "noopener", text: im.credit }) : el("span", { text: im.credit })]));
+    }
     btn.addEventListener("click", function () { zoom(im.src, alt); });
     img.addEventListener("error", function () { fig.remove(); });
     var head = section.querySelector("h1, h2");
+    if (s.type === "section") {   // photo replaces the big icon on the divider
+      var bigIco = section.querySelector(".sec-ico");
+      if (bigIco) bigIco.remove();
+      section.classList.add("has-photo");
+      section.appendChild(fig);
+      return section;
+    }
     if (SIDE[s.type]) {
       var rest = [], n = head.nextSibling;
       while (n) { rest.push(n); n = n.nextSibling; }
@@ -339,7 +364,8 @@
     btnNext.style.visibility = state.i === RESULTS ? "hidden" : "visible";
     var t = C.screens[state.i] ? C.screens[state.i].type : "";
     hint.textContent = !gated ? "" : ({ flipcards: "Flip all cards to continue", reveal: "Open every item to continue",
-      match: "Match all pairs to continue", scenario: "Find the best response to continue", mcq: "Answer to continue" })[t] || "";
+      match: "Match all pairs to continue", scenario: "Find the best response to continue", mcq: "Answer to continue",
+      sort: "Sort every item correctly to continue", infographic: "Tick every item to continue" })[t] || "";
     var pct = Math.round((state.i / (total - 1)) * 100);
     document.getElementById("progress-fill").style.width = pct + "%";
     document.getElementById("progress-label").textContent = pct + "%";
@@ -349,7 +375,7 @@
     state.i = Math.max(0, Math.min(i, total - 1));
     stage.innerHTML = "";
     var s = C.screens[state.i];
-    stage.appendChild(state.i === RESULTS ? renderResults() : withImage(R[s.type](s), s));
+    stage.appendChild(state.i === RESULTS ? renderResults() : withImage(withIcon((R[s.type] || R.content)(s), s), s));
     updateNav(); save();
     if (window.Voice) Voice.show(state.i === RESULTS ? null : s);
     stage.focus({ preventScroll: true }); window.scrollTo(0, 0);

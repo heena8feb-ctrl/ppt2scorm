@@ -53,7 +53,7 @@ def build_package(course, out_zip, media_dir=None, brand=None, keep_dir=None, br
         shutil.rmtree(build)
     build.mkdir(parents=True)
 
-    for name in ("index.html", "player.css", "player.js", "voice.js", "scorm.js"):
+    for name in ("index.html", "player.css", "player.js", "voice.js", "rich.js", "icons.js", "ICONS_LICENSE.txt", "scorm.js"):
         shutil.copy(PLAYER_DIR / name, build / name)
     from .brand import DEFAULT, css, package_into
     course.pop("theme", None)
@@ -86,7 +86,8 @@ def build_package(course, out_zip, media_dir=None, brand=None, keep_dir=None, br
             (build / "media").mkdir(exist_ok=True)
             shutil.copy(src, build / "media" / src.name)
     # Embed the course as JS (not fetched JSON) so it works from file:// and inside any LMS frame.
-    shipped = course if use_audio else dict(course, screens=[{k: v for k, v in sc.items() if k != "audio"} for sc in course["screens"]])
+    drop = {"photo_query"} | (set() if use_audio else {"audio"})   # authoring-only fields stay out of the package
+    shipped = dict(course, screens=[{k: v for k, v in sc.items() if k not in drop} for sc in course["screens"]])
     payload = json.dumps(shipped, ensure_ascii=False, indent=1).replace("</", "<\\/")
     (build / "course.js").write_text("window.COURSE = " + payload + ";\n", encoding="utf-8")
 

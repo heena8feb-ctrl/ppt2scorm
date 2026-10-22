@@ -1,0 +1,231 @@
+{
+  "title": "Drain Filter Service: Fix It First Time",
+  "description": "A 10-minute refresher that helps field technicians fix most drain complaints in one visit.",
+  "est_minutes": 10,
+  "mastery_score": 80,
+  "screens": [
+    {
+      "type": "intro",
+      "title": "Fix it first time",
+      "subtitle": "Clear most 'water not draining' complaints in under 10 minutes, safely, in one visit.",
+      "objectives": [
+        "Check the drain filter before replacing any part",
+        "Service a drain filter safely in four steps",
+        "Match common symptoms to their likely cause",
+        "Turn a fixed machine into a happy, informed customer"
+      ],
+      "narration": "Welcome. In the next ten minutes you'll learn the one check that fixes half of all drain complaints, and how to do it safely every time."
+    },
+    {
+      "type": "infographic",
+      "layout": "stats",
+      "title": "Why the filter comes first",
+      "intro": "The numbers from our service visits make a strong case.",
+      "parts": [
+        { "value": "50%", "title": "of drain complaints", "text": "are fixed by cleaning the filter alone.", "icon": "droplet" },
+        { "value": "10 min", "title": "or less on site", "text": "for a complete filter clean and test.", "icon": "timer" },
+        { "value": "1–2 L", "title": "of water comes out", "text": "when you open the filter cover.", "icon": "droplets" }
+      ],
+      "narration": "About half of all drain complaints are solved by cleaning the filter. It takes under ten minutes, so always check it before you replace the pump."
+    },
+    {
+      "type": "section",
+      "title": "Do it safely",
+      "subtitle": "Four steps, one towel and a shallow tray.",
+      "icon": "shield-check",
+      "narration": "Let's start with the procedure, and with keeping you and the customer's home safe."
+    },
+    {
+      "type": "infographic",
+      "layout": "process",
+      "title": "The 4-step filter service",
+      "parts": [
+        { "title": "Unplug", "text": "Pull the plug. Switching off at the panel isn't enough.", "icon": "plug" },
+        { "title": "Drain", "text": "Towel and shallow tray under the cover: 1 to 2 litres will come out.", "icon": "droplets" },
+        { "title": "Clean", "text": "Remove lint, coins and hair pins; rinse the filter.", "icon": "wrench" },
+        { "title": "Refit and test", "text": "Screw it in firmly and run a short drain cycle.", "icon": "circle-check" }
+      ],
+      "narration": "Unplug, drain, clean, then refit and test. Always unplug first, and put a towel and a shallow tray down, because up to two litres of water will come out."
+    },
+    {
+      "type": "infographic",
+      "layout": "comparison",
+      "title": "Safety on site",
+      "parts": [
+        { "title": "Do", "tone": "good", "text": "Unplug the machine, not just switch it off\nLet hot water cool before opening\nWipe up spills straight away" },
+        { "title": "Don't", "tone": "bad", "text": "Open the filter with the machine plugged in\nUnscrew the cover over a bare floor\nLeave water where someone could slip" }
+      ],
+      "narration": "Here's what safe work looks like on the left, and the shortcuts that cause accidents on the right."
+    },
+    {
+      "type": "infographic",
+      "layout": "checklist",
+      "title": "Before you open the cover",
+      "parts": [
+        { "title": "Machine unplugged", "icon": "plug" },
+        { "title": "Water has cooled down", "icon": "thermometer" },
+        { "title": "Towel and tray in place", "icon": "droplets" },
+        { "title": "Customer told what you're doing", "icon": "message-circle" }
+      ],
+      "narration": "Tick each item as you go. Make this your habit before every filter service."
+    },
+    {
+      "type": "mcq",
+      "question": "You arrive and the drum is full of water. What do you do first?",
+      "options": ["Open the filter cover to drain it", "Unplug the machine", "Order a new pump", "Run a spin cycle"],
+      "correct": 1,
+      "explanation": "Always unplug first. Then put down a towel and tray before opening the filter.",
+      "scored": false,
+      "narration": "Quick practice question before we move on."
+    },
+    {
+      "type": "section",
+      "title": "Find the real cause",
+      "subtitle": "Not every drain problem is the filter. Read the symptoms.",
+      "icon": "search",
+      "narration": "Now let's make sure you fix the right thing."
+    },
+    {
+      "type": "infographic",
+      "layout": "grid",
+      "title": "Four symptoms to recognise",
+      "parts": [
+        { "title": "Water left in the drum", "text": "Most often a blocked filter.", "icon": "droplet" },
+        { "title": "Loud humming, no drain", "text": "A coin or object is stuck in the pump.", "icon": "activity" },
+        { "title": "Error code F21 / E21", "text": "Drain timeout: clean the filter, then check the hose.", "icon": "triangle-alert" },
+        { "title": "Slow drain only", "text": "Usually a kinked drain hose.", "icon": "route" }
+      ],
+      "narration": "These four symptoms cover most visits. Notice that two of them point straight at the filter."
+    },
+    {
+      "type": "sort",
+      "title": "Filter or hose?",
+      "instruction": "Decide where you'd look first for each symptom.",
+      "buckets": ["Check the filter first", "Check the hose first"],
+      "terms": [
+        { "text": "Water left in the drum", "bucket": 0 },
+        { "text": "Error code F21", "bucket": 0 },
+        { "text": "Humming but no drain", "bucket": 0 },
+        { "text": "Drains, but slowly", "bucket": 1 },
+        { "text": "Hose squashed behind the machine", "bucket": 1 },
+        { "text": "Coin rattling during the cycle", "bucket": 0 }
+      ],
+      "narration": "Sort each symptom by where you'd look first. Think it through before you check."
+    },
+    {
+      "type": "scenario",
+      "title": "Mrs Sharma's machine",
+      "situation": "Mrs Sharma says her front loader stopped mid-wash with water in the drum and an E21 code. Her son already ordered a new pump online. What do you do?",
+      "choices": [
+        { "text": "Fit the new pump since it's already here", "correct": false, "feedback": "Half of drain complaints are a blocked filter. Check it first: it takes under 10 minutes." },
+        { "text": "Unplug, drain and clean the filter, then test", "correct": true, "feedback": "Right. E21 is a drain timeout, so the filter is the first check. The pump may not be needed at all." },
+        { "text": "Tell her to call back after the pump arrives", "correct": false, "feedback": "You can likely fix it today. Clean the filter first, then decide." }
+      ],
+      "icon": "house",
+      "narration": "Here's a real situation. Read it carefully and choose what you'd do."
+    },
+    {
+      "type": "section",
+      "title": "Leave a happy customer",
+      "subtitle": "The fix is half the job. The conversation is the other half.",
+      "icon": "smile",
+      "narration": "Finally, how you finish the visit matters as much as the repair."
+    },
+    {
+      "type": "infographic",
+      "layout": "pyramid",
+      "title": "What matters, in order",
+      "parts": [
+        { "title": "Offer the AMC", "text": "Only after the problem is fixed and the customer is happy.", "icon": "award" },
+        { "title": "Teach monthly cleaning", "text": "Show how to clean the filter themselves.", "icon": "graduation-cap" },
+        { "title": "Show what you removed", "text": "Lint, coins and pins make the problem real.", "icon": "eye" },
+        { "title": "Fix it safely, first time", "text": "Everything else depends on this.", "icon": "shield-check" }
+      ],
+      "narration": "Build the visit from the bottom up: fix it safely, show and teach, and only then recommend the annual maintenance contract."
+    },
+    {
+      "type": "infographic",
+      "layout": "timeline",
+      "title": "The customer conversation",
+      "parts": [
+        { "value": "On arrival", "title": "Listen first", "text": "Ask what happened and when it started." },
+        { "value": "During", "title": "Explain as you work", "text": "Tell them what you're checking and why." },
+        { "value": "After the fix", "title": "Show and teach", "text": "Hand over what you removed; demo monthly cleaning." },
+        { "value": "Before leaving", "title": "Recommend the AMC", "text": "Regular checks prevent repeat visits." }
+      ],
+      "narration": "Here's how a great visit flows, from the moment you arrive to the moment you leave."
+    },
+    {
+      "type": "infographic",
+      "layout": "cycle",
+      "title": "Why monthly cleaning matters",
+      "parts": [
+        { "title": "Customer cleans monthly", "text": "A two-minute habit you taught them.", "icon": "calendar-check" },
+        { "title": "Filter stays clear", "text": "Lint never builds up enough to block it.", "icon": "droplet" },
+        { "title": "No drain complaints", "text": "Fewer breakdowns, fewer emergency calls.", "icon": "thumbs-up" },
+        { "title": "Trust in the brand", "text": "A happy customer renews the AMC.", "icon": "heart-handshake" }
+      ],
+      "narration": "Teaching monthly cleaning starts a cycle that keeps machines running and customers loyal. Select each stage to read more."
+    },
+    {
+      "type": "match",
+      "title": "Symptom to action",
+      "instruction": "Match each symptom to the right first action.",
+      "pairs": [
+        { "left": "Water left in the drum", "right": "Clean the filter" },
+        { "left": "Loud humming, no drain", "right": "Remove object, check impeller" },
+        { "left": "Slow drain only", "right": "Straighten or replace the hose" }
+      ],
+      "narration": "One more practice: match each symptom with what you'd do first."
+    },
+    {
+      "type": "summary",
+      "title": "Five things to remember",
+      "points": [
+        "Check the drain filter before replacing any part",
+        "Unplug first; towel and tray before opening",
+        "E21 / F21 means drain timeout: filter, then hose",
+        "Show what you removed and teach monthly cleaning",
+        "Offer the AMC only once the customer is happy"
+      ],
+      "icon": "list-checks",
+      "narration": "Here are the five things to take to your next visit. Then a short check to finish."
+    },
+    {
+      "type": "mcq",
+      "question": "About what share of drain complaints are fixed by cleaning the filter?",
+      "options": ["About a tenth", "About a quarter", "About half", "Nearly all"],
+      "correct": 2,
+      "explanation": "Around half, which is why the filter is always the first check.",
+      "scored": true,
+      "narration": "Question one."
+    },
+    {
+      "type": "mcq",
+      "question": "Why put a towel and a shallow tray down before opening the filter cover?",
+      "options": ["To catch the 1 to 2 litres of water that come out", "To protect the customer's floor from scratches", "To collect the screws", "It's only needed for top loaders"],
+      "correct": 0,
+      "explanation": "One to two litres of water drain out when the cover opens.",
+      "scored": true,
+      "narration": "Question two."
+    },
+    {
+      "type": "mcq",
+      "question": "A machine shows error E21 and drains slowly. What's the best order of checks?",
+      "options": ["Pump, then filter", "Hose, then pump", "Filter, then hose", "Replace the control board"],
+      "correct": 2,
+      "explanation": "E21 is a drain timeout: clean the filter first, then check the hose.",
+      "scored": true,
+      "narration": "Question three."
+    },
+    {
+      "type": "mcq",
+      "question": "When should you recommend the annual maintenance contract?",
+      "options": ["As soon as you arrive", "While the machine is draining", "After the problem is fixed and the customer is happy", "Only if the customer asks"],
+      "correct": 2,
+      "explanation": "Offer the AMC once you've fixed the problem and the customer is satisfied.",
+      "scored": true,
+      "narration": "Last question."
+    }
+  ]
+}
