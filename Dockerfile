@@ -1,6 +1,6 @@
 # ppt2scorm web app
 # Base image pinned to the Python 3.12 line on Debian bookworm (Dependabot proposes updates).
-FROM python:3.12-slim-bookworm
+FROM python:3.15-slim-bookworm
 
 ENV PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1 PORT=7860
 
